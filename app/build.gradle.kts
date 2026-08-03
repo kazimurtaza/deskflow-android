@@ -32,8 +32,6 @@ plugins {
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.kotlin.serialization)
   alias(libs.plugins.protobuf)
-  alias(libs.plugins.hilt)
-  alias(libs.plugins.ksp)
 }
 
 protobuf {
@@ -89,33 +87,6 @@ android {
       )
       buildConfigField("boolean", "DEBUG", "false")
     }
-
-    // applicationVariants.all {
-    //   outputs.all {
-    //     if (this is com.android.build.gradle.api.ApkVariant) {
-    //       val aabOutputFile =
-    //         File(
-    //           outputDirectory,
-    //           "${name}_${versionName}_${versionCode}_${buildType.name}.aab"
-    //         )
-    //       // Check if the task already exists to avoid errors during re-syncs
-    //       if (tasks.findByName("rename${name.capitalize()}Aab") == null) {
-    //         val renameAabTask =
-    // tasks.register("rename${name.capitalize()}Aab") {
-    //           doLast {
-    //             val sourceFile = outputFile
-    //             if (sourceFile.exists()) {
-    //               sourceFile.copyTo(aabOutputFile, overwrite = true)
-    //             } else {
-    //               println("AAB file not found: ${sourceFile.absolutePath}")
-    //             }
-    //           }
-    //         }
-    //         dependsOn(renameAabTask)
-    //       }
-    //     }
-    //   }
-    // }
   }
 
   compileOptions {
@@ -148,11 +119,6 @@ dependencies {
 
   implementation(libs.protobuf.kotlin)
 
-  ksp(libs.hilt.compiler)
-  kspTest(libs.hilt.compiler)
-  implementation(libs.hilt.core)
-  implementation(libs.hilt.android)
-
   implementation(libs.google.accompanist.permissions)
 
   implementation(libs.androidx.core.ktx)
@@ -168,7 +134,6 @@ dependencies {
   implementation(libs.androidx.lifecycle.viewmodel.normal)
   implementation(libs.androidx.lifecycle.viewmodel.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
-  implementation(libs.androidx.hilt.navigation.compose)
   implementation(libs.androidx.navigation.compose)
   implementation(libs.androidx.lifecycle.process)
   implementation(libs.androidx.lifecycle.service)
