@@ -127,10 +127,8 @@
     "actionId": 20,
     "label": "Dpad Center",
     "defaultShortcutKeys":  [
-      "Control+Return",
       "Meta+Return",
-      "Super+Return",
-      "Return"
+      "Super+Return"
     ],
     "ignoreIME": false
   }

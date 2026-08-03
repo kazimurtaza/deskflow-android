@@ -35,7 +35,7 @@ object Keyboard {
     Pause(0xEF13),  /* Pause, hold */
     ScrollLock(0xEF14),
     SysReq(0xEF15),
-    Escape(0xEF1B),
+    Escape(0xEF1B, "\u001B"), /* Escape character (ESC) */
     Henkan(0xEF23),           /* Start/Stop Conversion */
     Kana(0xEF26),             /* Kana */
     HiraganaKatakana(0xEF27), /* Hiragana/Katakana toggle */
@@ -51,14 +51,14 @@ object Keyboard {
     Up(0xEF52),    /* Move up, up arrow */
     Right(0xEF53), /* Move right, right arrow */
     Down(0xEF54),  /* Move down, down arrow */
-    PageUp(0xEF55),
-    PageDown(0xEF56),
+    PageUp(0xEF55, "\u001B[5~"), /* Page Up */
+    PageDown(0xEF56, "\u001B[6~"), /* Page Down */
     End(0xEF57),   /* EOL */
     Begin(0xEF58), /* BOL */
 
     // Audio / media keys. These are the Deskflow wire KeyIDs (KeyTypes.h
     // kKeyAudio*); the server translates platform-native volume keys (X11
-    // XF86Audio*, Windows VK_VOLUME_*, macOS) into these 16-bit values before
+    // XF86Audio*, Windows VK_VOLUME*, macOS) into these 16-bit values before
     // transmission, so they fit the %2i key field verbatim.
     VolumeMute(0xE0AD),
     VolumeDown(0xE0AE),

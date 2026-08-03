@@ -28,6 +28,7 @@ import android.content.ClipData
 import android.content.Intent
 import android.graphics.Rect
 import android.inputmethodservice.InputMethodService
+import android.inputmethodservice.InputMethodService.Insets
 import android.view.View
 import android.view.inputmethod.CursorAnchorInfo
 import android.view.inputmethod.EditorInfo
@@ -157,8 +158,9 @@ class VirtualKeyboardService : InputMethodService() {
 
   internal fun saveEditHistory(
     info: EditorInfo?,
-    extractedText: ExtractedText,
+    extractedText: ExtractedText?,
   ) {
+    if (extractedText == null) return
     getEditHistory(info)?.save(extractedText.text.toString(), maxSize = 25)
   }
 
@@ -269,11 +271,19 @@ class VirtualKeyboardService : InputMethodService() {
   }
 
   override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
+    super.onStartInputView(info, restarting)
     keyboardViewLifecycleOwner.onResume()
   }
 
   override fun onFinishInputView(finishingInput: Boolean) {
     keyboardViewLifecycleOwner.onPause()
+  }
+
+  override fun onComputeInsets(outInsets: Insets?) {
+    super.onComputeInsets(outInsets)
+    if (outInsets != null) {
+      outInsets.contentTopInsets = outInsets.visibleTopInsets
+    }
   }
 
   override fun onCreateInputView(): View {
@@ -324,14 +334,14 @@ class VirtualKeyboardService : InputMethodService() {
     return view
   }
 
-  fun currentExtractedTest(): ExtractedText {
+  fun currentExtractedTest(): ExtractedText? {
     return currentInputConnection.getExtractedText(ExtractedTextRequest(), 0)
   }
 
   private fun applyCommand(
     command: String?,
     ic: InputConnection = currentInputConnection,
-    extractedText: ExtractedText =
+    extractedText: ExtractedText? =
       ic.getExtractedText(ExtractedTextRequest(), 0),
   ) {
     command?.let {
@@ -379,6 +389,8 @@ class VirtualKeyboardService : InputMethodService() {
    * @param event The keyboard event to handle.
    */
   private fun onKeyboardEvent(event: KeyboardEvent) {
+    log.debug { "onKeyboardEvent: $event" }
+
     // 1. Check if we have a valid input connection.
     val ic = currentInputConnection
     if (ic == null) {
@@ -395,8 +407,8 @@ class VirtualKeyboardService : InputMethodService() {
       return
     }
 
-    // 3. Only handle `Down` type events.
-    if (event.type != KeyboardEvent.Type.Down) {
+    // 3. Only handle Down and Repeat events - ignore Up to avoid duplicates.
+    if (event.type == KeyboardEvent.Type.Up) {
       return
     }
 
@@ -411,69 +423,85 @@ class VirtualKeyboardService : InputMethodService() {
 
     // 5. If all the previous checks passed, grab the current `ExtractedText` of
     // the `InputConnection`.
+    // Note: Some apps (like terminal emulators) return null for getExtractedText,
+    // but commitText still works for basic input.
     val et = ic.getExtractedText(ExtractedTextRequest(), 0)
     val mods = event.getModifiers()
     val editHistory = getEditHistory()
 
+    // Build modifier keys for editor shortcut matching
+    var modKeys = ModifierKeys()
+    val setModKeys = { isPressed: Boolean, modKey: Keyboard.ModifierKey ->
+      if (isPressed) modKeys = modKeys.updateModifierKeys(true, modKey)
+    }
+    setModKeys(mods.isMeta, Keyboard.ModifierKey.Meta)
+    setModKeys(mods.isSuper, Keyboard.ModifierKey.Super)
+    setModKeys(mods.isControl, Keyboard.ModifierKey.Control)
+    setModKeys(mods.isAlt, Keyboard.ModifierKey.Alt)
+    setModKeys(mods.isShift, Keyboard.ModifierKey.Shift)
+    setModKeys(mods.isAltGr, Keyboard.ModifierKey.AltRight)
+    setModKeys(mods.isCapsLock, Keyboard.ModifierKey.CapsLock)
+
+    val shortcut = ShortcutKey(event.id.toInt(), modKeys)
+    val shortcutActionEntry = keyboardActions.entries.find {
+      it.value.defaultShortcutKeys.contains(shortcut)
+    }
+
     when {
+      // Editor shortcut actions
+      shortcutActionEntry != null && et != null -> {
+        log.debug {
+          "Matched shortcut to action(type=${shortcutActionEntry.key},value=${shortcutActionEntry.value})"
+        }
+        shortcutActionEntry.key.action(
+          ic,
+          et,
+          specialKey,
+          mods,
+          event,
+          editHistory,
+          this,
+        )
+      }
+      // Special key actions (e.g., BackSpace, Delete, etc.)
       specialKey != null -> {
         val action =
           keyboardActions.entries.find { it.value.specialKey == specialKey }
         if (action == null) {
-          log.warn { "No action registered for special key: $specialKey" }
-          log.debug { "Special key detected: $specialKey" }
-          specialKey.imeText?.let { applyCommand(it, ic, et) }
+          // No action registered for this special key
+          // Only apply fallback if the special key has imeText defined
+          if (specialKey.imeText != null) {
+            log.debug { "Special key detected with imeText: $specialKey" }
+            applyCommand(specialKey.imeText, ic, et)
+          } else {
+            log.warn { "No action registered for special key without imeText: $specialKey - ignoring" }
+          }
           return
         }
 
         log.debug { "Invoking action: ${action.key}" }
         action.key.action(ic, et, specialKey, mods, event, editHistory, this)
       }
+      // Regular character input (including terminal apps where ExtractedText is null)
       else -> {
         log.debug { "Received $event" }
         val keyChar = id.toChar()
         val keyStr = keyChar.toString()
 
-        var modKeys = ModifierKeys()
-        val setModKeys = { isPressed: Boolean, modKey: Keyboard.ModifierKey ->
-          if (isPressed) modKeys = modKeys.updateModifierKeys(true, modKey)
-        }
-        setModKeys(mods.isMeta, Keyboard.ModifierKey.Meta)
-        setModKeys(mods.isSuper, Keyboard.ModifierKey.Super)
-        setModKeys(mods.isControl, Keyboard.ModifierKey.Control)
-        setModKeys(mods.isAlt, Keyboard.ModifierKey.Alt)
-        setModKeys(mods.isShift, Keyboard.ModifierKey.Shift)
-        setModKeys(mods.isAltGr, Keyboard.ModifierKey.AltRight)
-        setModKeys(mods.isCapsLock, Keyboard.ModifierKey.CapsLock)
-
-        //        TODO: Parse modifier keys from event (`mask` field) and create
-        // a `ModifierKeys` instance
-        val shortcut = ShortcutKey(event.id.toInt(), modKeys)
-        val actionEntry =
-          keyboardActions.entries.find {
-            it.value.defaultShortcutKeys.contains(shortcut)
-          }
-        when {
-          actionEntry != null -> {
-            log.debug {
-              "Matched shortcut($shortcut) to action(type=${actionEntry.key},value=${actionEntry.value})"
-            }
-            actionEntry.key.action(
-              ic,
-              et,
-              specialKey,
-              mods,
-              event,
-              editHistory,
-              this,
-            )
-          }
-
-          else -> {
-            log.debug { "Applying command: $keyStr" }
-            applyCommand(keyStr, ic, et)
+        // Terminal apps: Handle Ctrl+A-Z as ASCII control characters
+        if (et == null && mods.isControl && !mods.isAlt && !mods.isMeta && !mods.isSuper) {
+          val upperChar = keyChar.uppercaseChar()
+          if (upperChar in 'A'..'Z') {
+            val controlChar = (upperChar.code - 'A'.code + 1).toChar()
+            log.debug { "Terminal: Ctrl+$upperChar -> control char ${controlChar.code}" }
+            applyCommand(controlChar.toString(), ic, et)
+            return
           }
         }
+
+        // Apply regular character input
+        log.debug { "Applying command: $keyStr" }
+        applyCommand(keyStr, ic, et)
       }
     }
   }

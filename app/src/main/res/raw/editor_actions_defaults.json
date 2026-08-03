@@ -72,5 +72,26 @@
       "Meta+Shift+z",
       "Super+Shift+z"
     ]
+  },
+  {
+    "actionId": 11,
+    "label": "Insert Newline",
+    "defaultShortcutKeys": [
+      "Shift+Return"
+    ]
+  },
+  {
+    "actionId": 12,
+    "label": "Send Control Enter",
+    "defaultShortcutKeys": [
+      "Control+Return"
+    ]
+  },
+  {
+    "actionId": 13,
+    "label": "Handle Return",
+    "defaultShortcutKeys": [
+      "Return"
+    ]
   }
 ]

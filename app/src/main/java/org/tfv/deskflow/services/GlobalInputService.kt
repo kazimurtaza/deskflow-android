@@ -63,6 +63,7 @@ import androidx.core.content.ContextCompat
 import arrow.core.raise.catch
 import kotlin.concurrent.atomics.AtomicBoolean
 import kotlin.math.abs
+import kotlin.math.sqrt
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.tfv.deskflow.R
@@ -188,6 +189,51 @@ class GlobalInputService : AccessibilityService() {
    * control the visibility of the mouse pointer view.
    */
   @Volatile private var mousePointerVisible = false
+
+  /**
+   * Mouse button currently held down (null if none). Used for click-vs-drag
+   * detection: a press followed by movement beyond [dragThreshold] becomes a
+   * drag (a continued accessibility gesture); otherwise it is a tap on release.
+   */
+  private data class MouseButtonState(
+    val buttonId: UInt,
+    val downX: Int,
+    val downY: Int,
+    val downTime: Long = System.currentTimeMillis(),
+  )
+
+  @Volatile private var mouseButtonDown: MouseButtonState? = null
+
+  /**
+   * Active drag state, non-null while a touch hold / drag is in progress.
+   * [lastStrokes] holds one stroke per simulated finger for multi-touch
+   * (right/middle clicks): index 0 = primary, 1 = +100px right, 2 = +200px.
+   */
+  private data class DragState(
+    var lastDispatchedX: Float,
+    var lastDispatchedY: Float,
+    var targetX: Float,
+    var targetY: Float,
+    var lastStrokes: List<StrokeDescription> = emptyList(),
+    var isEnding: Boolean = false,
+    var initialHoldDuration: Long = 0,
+    val fingerCount: Int = 1,
+  )
+
+  @Volatile private var activeDragState: DragState? = null
+
+  /** True while a drag gesture segment is mid-flight (prevents overlapping dispatch). */
+  @Volatile private var dragGestureInProgress = false
+
+  /** Movement (px) beyond which a held button-down becomes a drag. */
+  private val dragThreshold = 10
+
+  /** Per-finger X/Y offsets for simulated multi-touch drags. */
+  private val multiTouchFingerOffsets =
+    listOf(Pair(0, 0), Pair(100, 0), Pair(200, 0))
+
+  /** Pending delayed IME-picker show on disconnect (cancelled on reconnect). */
+  private var imePickerDelayJob: Job? = null
 
   private val keyboardWasOpen = AtomicBoolean(false)
 
@@ -466,6 +512,31 @@ class GlobalInputService : AccessibilityService() {
       Intent(applicationContext, ConnectionService::class.java),
     )
     serviceClient.bind()
+
+    // On disconnect, give the user a chance to switch back to their normal
+    // keyboard: show the system IME picker after a short delay (cancelled if the
+    // connection returns). Hosted here because the accessibility service stays
+    // alive regardless of whether an input field is focused.
+    serviceScope.launch {
+      var previouslyConnected: Boolean? = null
+      serviceClient.stateFlow.collect { state ->
+        val connected = state.isConnected && state.ackReceived && state.isEnabled
+        if (connected) {
+          imePickerDelayJob?.cancel()
+          imePickerDelayJob = null
+        } else if (previouslyConnected == true) {
+          imePickerDelayJob?.cancel()
+          imePickerDelayJob = serviceScope.launch {
+            delay(IME_PICKER_DELAY_MS)
+            withContext(Dispatchers.Main) {
+              runCatching { imeManager.showInputMethodPicker() }
+                .onFailure { log.warn(it) { "Error showing IME picker" } }
+            }
+          }
+        }
+        previouslyConnected = connected
+      }
+    }
   }
 
   /**
@@ -479,6 +550,15 @@ class GlobalInputService : AccessibilityService() {
     // GLOBAL_ACTIONs), and only on key-down: the Barrier protocol delivers both
     // Down and Up, so acting on both would step the volume twice per press.
     if (event.type == KeyboardEvent.Type.Down && handleVolumeKey(event)) return
+    // Always process modifier keys on both Down and Up so keyboardManager tracks
+    // modifier state (e.g. Control for Ctrl+wheel zoom).
+    if (Keyboard.findModifierKey(event.id.toInt()) != null) {
+      keyboardManager.process(event)
+      return
+    }
+    // Non-modifier keys: handle Down and Repeat (key-repeat); ignore Up, which
+    // would otherwise duplicate the Down.
+    if (event.type == KeyboardEvent.Type.Up) return
     keyboardManager.process(event)
   }
 
@@ -537,19 +617,284 @@ class GlobalInputService : AccessibilityService() {
    * > Example: Used for clicking on buttons or input fields in the global input
    * > service.
    */
-  private fun clickGesture(
+  /**
+   * Perform a tap/click gesture at the specified position.
+   * @param duration 100ms = click, 500ms+ = long press, 1000ms+ = context menu.
+   */
+  private fun tapGesture(
     x: Float = mousePointerLayout.x.toFloat(),
     y: Float = mousePointerLayout.y.toFloat(),
+    duration: Long = 100,
   ) {
-
-    log.debug { "Click gesture at [$x, $y]" }
+    log.debug { "Tap gesture at [$x, $y] duration ${duration}ms" }
 
     val path = Path().apply { moveTo(x, y) }
     val gesture =
       GestureDescription.Builder()
-        .addStroke(StrokeDescription(path, 0, 100))
+        .addStroke(StrokeDescription(path, 0, duration))
         .build()
     dispatchGesture(gesture, gestureResultCallback, globalInputHandler)
+  }
+
+  /**
+   * If a drag is in progress, feed the new (post-sensitivity) pointer position
+   * into the drag state machine. MUST run after [moveMousePointer] so the
+   * position reflects pointer-speed scaling.
+   */
+  private fun advanceDragIfActive(currentX: Int, currentY: Int) {
+    val buttonState = mouseButtonDown ?: return
+    val dragState = activeDragState ?: return
+    if (dragState.initialHoldDuration == 0L) {
+      // Speculative hold: convert to a drag once the cursor exceeds the slop.
+      if (isDragMovement(buttonState.downX, buttonState.downY, currentX, currentY)) {
+        val held = System.currentTimeMillis() - buttonState.downTime
+        log.debug { "Converting hold to drag at [$currentX,$currentY] held ${held}ms" }
+        dragState.initialHoldDuration = held
+        dragState.targetX = currentX.toFloat()
+        dragState.targetY = currentY.toFloat()
+        if (!dragGestureInProgress) dispatchDragContinuation()
+      } else {
+        // Within tap slop: keep the target synced for a later conversion.
+        dragState.targetX = currentX.toFloat()
+        dragState.targetY = currentY.toFloat()
+      }
+    } else {
+      // Already dragging: extend the path to the new position.
+      updateDragGesture(currentX.toFloat(), currentY.toFloat())
+    }
+  }
+
+  /**
+   * Start a speculative touch hold (willContinue) that can convert to a drag on
+   * movement, or release cleanly on button-up. [fingerCount] simulates
+   * multi-touch for right (2) / middle (3) clicks.
+   */
+  private fun startSpeculativeHold(x: Float, y: Float, fingerCount: Int = 1) {
+    if (activeDragState != null) {
+      log.warn { "Speculative hold ignored - drag already active" }
+      return
+    }
+    val fingers = fingerCount.coerceIn(1, 3)
+    log.debug { "Starting speculative hold at [$x,$y] fingers=$fingers" }
+    dragGestureInProgress = true
+
+    val strokes = mutableListOf<StrokeDescription>()
+    val builder = GestureDescription.Builder()
+    for (i in 0 until fingers) {
+      val (offX, offY) = multiTouchFingerOffsets[i]
+      val path = Path().apply { moveTo(x + offX, y + offY) }
+      val stroke = StrokeDescription(path, (i * 5).toLong(), 100, true)
+      strokes.add(stroke)
+      builder.addStroke(stroke)
+    }
+
+    activeDragState =
+      DragState(
+        lastDispatchedX = x,
+        lastDispatchedY = y,
+        targetX = x,
+        targetY = y,
+        lastStrokes = strokes,
+        initialHoldDuration = 0,
+        fingerCount = fingers,
+      )
+
+    dispatchGesture(builder.build(), object : GestureResultCallback() {
+      override fun onCompleted(gestureDescription: GestureDescription) {
+        dragGestureInProgress = false
+        // willContinue completes immediately; the drag state stays armed, waiting
+        // for movement (-> drag) or button-up (-> release). Do NOT clear it here.
+        // A very fast click may have queued an end while this was in flight:
+        if (activeDragState?.isEnding == true) dispatchFinalStroke()
+      }
+
+      override fun onCancelled(gestureDescription: GestureDescription) {
+        log.warn { "Speculative hold cancelled" }
+        activeDragState = null
+        dragGestureInProgress = false
+      }
+    }, globalInputHandler)
+  }
+
+  /** Update the drag target; dispatch a continuation now if no segment is in flight. */
+  private fun updateDragGesture(toX: Float, toY: Float) {
+    val dragState = activeDragState ?: return
+    dragState.targetX = toX
+    dragState.targetY = toY
+    if (!dragGestureInProgress) dispatchDragContinuation()
+  }
+
+  /** Continue each finger's stroke from the last dispatched point to the target. */
+  private fun dispatchDragContinuation() {
+    val dragState = activeDragState ?: return
+    if (dragState.isEnding) {
+      dispatchFinalStroke()
+      return
+    }
+    if (dragState.lastDispatchedX == dragState.targetX &&
+      dragState.lastDispatchedY == dragState.targetY
+    ) {
+      return // already at target
+    }
+    val lastStrokes = dragState.lastStrokes
+    if (lastStrokes.isEmpty()) {
+      log.warn { "No last strokes to continue from" }
+      return
+    }
+    val fromX = dragState.lastDispatchedX
+    val fromY = dragState.lastDispatchedY
+    val toX = dragState.targetX
+    val toY = dragState.targetY
+    log.debug { "Drag continuation [$fromX,$fromY]->[$toX,$toY] fingers=${lastStrokes.size}" }
+    dragGestureInProgress = true
+
+    val continued = mutableListOf<StrokeDescription>()
+    val builder = GestureDescription.Builder()
+    for ((i, last) in lastStrokes.withIndex()) {
+      val (offX, offY) = multiTouchFingerOffsets[i]
+      val path = Path().apply {
+        moveTo(fromX + offX, fromY + offY)
+        lineTo(toX + offX, toY + offY)
+      }
+      val stroke = last.continueStroke(path, 0, 50, true)
+      continued.add(stroke)
+      builder.addStroke(stroke)
+    }
+    dragState.lastStrokes = continued
+    dragState.lastDispatchedX = toX
+    dragState.lastDispatchedY = toY
+
+    dispatchGesture(builder.build(), object : GestureResultCallback() {
+      override fun onCompleted(gestureDescription: GestureDescription) {
+        dragGestureInProgress = false
+        // If the cursor moved while this segment was in flight, chain another.
+        if (activeDragState != null) dispatchDragContinuation()
+      }
+
+      override fun onCancelled(gestureDescription: GestureDescription) {
+        log.warn { "Drag continuation cancelled" }
+        activeDragState = null
+        dragGestureInProgress = false
+      }
+    }, globalInputHandler)
+  }
+
+  /** Mark the active drag for ending at [endX],[endY]; dispatch the final lift. */
+  private fun endDragGesture(endX: Float, endY: Float) {
+    val dragState = activeDragState ?: run {
+      log.warn { "endDragGesture called but no active drag state" }
+      return
+    }
+    dragState.targetX = endX
+    dragState.targetY = endY
+    dragState.isEnding = true
+    if (dragGestureInProgress) return // the in-flight segment's onCompleted will finalize
+    dispatchFinalStroke()
+  }
+
+  /** Final stroke that lifts every held finger (willContinue = false). */
+  private fun dispatchFinalStroke() {
+    val dragState = activeDragState ?: return
+    val lastStrokes = dragState.lastStrokes
+    if (lastStrokes.isEmpty()) {
+      activeDragState = null
+      return
+    }
+    val endX = dragState.targetX
+    val endY = dragState.targetY
+    log.debug {
+      "Drag end at [$endX,$endY] fingers=${lastStrokes.size} (held ${dragState.initialHoldDuration}ms)"
+    }
+    dragGestureInProgress = true
+
+    val builder = GestureDescription.Builder()
+    for ((i, last) in lastStrokes.withIndex()) {
+      val (offX, offY) = multiTouchFingerOffsets[i]
+      val path = Path().apply {
+        moveTo(dragState.lastDispatchedX + offX, dragState.lastDispatchedY + offY)
+        lineTo(endX + offX, endY + offY)
+      }
+      builder.addStroke(last.continueStroke(path, 0, 10, false))
+    }
+
+    dispatchGesture(builder.build(), object : GestureResultCallback() {
+      override fun onCompleted(gestureDescription: GestureDescription) {
+        activeDragState = null
+        dragGestureInProgress = false
+      }
+
+      override fun onCancelled(gestureDescription: GestureDescription) {
+        log.warn { "Drag end cancelled" }
+        activeDragState = null
+        dragGestureInProgress = false
+      }
+    }, globalInputHandler)
+  }
+
+  /** True if movement from (start) to (current) exceeds [dragThreshold]. */
+  private fun isDragMovement(startX: Int, startY: Int, currentX: Int, currentY: Int): Boolean {
+    val dx = abs(currentX - startX)
+    val dy = abs(currentY - startY)
+    return sqrt((dx * dx + dy * dy).toDouble()) > dragThreshold
+  }
+
+  /** Two-finger spread gesture (zoom in) centered on the pointer. */
+  private fun spreadGesture() {
+    val px = mousePointerLayout.x.toFloat()
+    val py = mousePointerLayout.y.toFloat()
+    val path1 = Path().apply { moveTo(px + 25, py); lineTo(px + 75, py) }
+    val path2 = Path().apply { moveTo(px - 25, py); lineTo(px - 75, py) }
+    val stroke1 = StrokeDescription(path1, 0, 200, true)
+    val stroke2 = StrokeDescription(path2, 5, 200, true)
+    val gesture =
+      GestureDescription.Builder().addStroke(stroke1).addStroke(stroke2).build()
+    log.debug { "Spread (zoom in) at [$px,$py]" }
+    dispatchGesture(gesture, object : GestureResultCallback() {
+      override fun onCompleted(gestureDescription: GestureDescription) {
+        // Release both fingers from their spread positions.
+        val p1 = Path().apply { moveTo(px + 75, py) }
+        val p2 = Path().apply { moveTo(px - 75, py) }
+        val release =
+          GestureDescription.Builder()
+            .addStroke(stroke1.continueStroke(p1, 50, 50, false))
+            .addStroke(stroke2.continueStroke(p2, 50, 50, false))
+            .build()
+        dispatchGesture(release, gestureResultCallback, globalInputHandler)
+      }
+
+      override fun onCancelled(gestureDescription: GestureDescription) {
+        log.warn { "Spread gesture cancelled" }
+      }
+    }, globalInputHandler)
+  }
+
+  /** Two-finger pinch gesture (zoom out) centered on the pointer. */
+  private fun pinchGesture() {
+    val px = mousePointerLayout.x.toFloat()
+    val py = mousePointerLayout.y.toFloat()
+    val path1 = Path().apply { moveTo(px + 75, py); lineTo(px + 25, py) }
+    val path2 = Path().apply { moveTo(px - 75, py); lineTo(px - 25, py) }
+    val stroke1 = StrokeDescription(path1, 0, 200, true)
+    val stroke2 = StrokeDescription(path2, 5, 200, true)
+    val gesture =
+      GestureDescription.Builder().addStroke(stroke1).addStroke(stroke2).build()
+    log.debug { "Pinch (zoom out) at [$px,$py]" }
+    dispatchGesture(gesture, object : GestureResultCallback() {
+      override fun onCompleted(gestureDescription: GestureDescription) {
+        val p1 = Path().apply { moveTo(px + 25, py) }
+        val p2 = Path().apply { moveTo(px - 25, py) }
+        val release =
+          GestureDescription.Builder()
+            .addStroke(stroke1.continueStroke(p1, 50, 50, false))
+            .addStroke(stroke2.continueStroke(p2, 50, 50, false))
+            .build()
+        dispatchGesture(release, gestureResultCallback, globalInputHandler)
+      }
+
+      override fun onCancelled(gestureDescription: GestureDescription) {
+        log.warn { "Pinch gesture cancelled" }
+      }
+    }, globalInputHandler)
   }
 
   /**
@@ -654,21 +999,38 @@ class GlobalInputService : AccessibilityService() {
         // this is a no-op (exact server tracking).
         val (nx, ny) = applyPointerSensitivity(event.x, event.y)
         moveMousePointer(nx, ny)
+        advanceDragIfActive(nx, ny)
       }
 
       MouseEvent.Type.MoveRelative -> {
         val s = mouseSensitivity
-        moveMousePointer(
-          mousePointerLayout.x + (event.x * s).toInt(),
-          mousePointerLayout.y + (event.y * s).toInt(),
-        )
+        val nx = mousePointerLayout.x + (event.x * s).toInt()
+        val ny = mousePointerLayout.y + (event.y * s).toInt()
+        moveMousePointer(nx, ny)
+        advanceDragIfActive(nx, ny)
       }
 
       MouseEvent.Type.Down -> {
         log.debug { "Down [$event]" }
-        // Back/forward mouse buttons (X1/X2) drive system navigation, fired on
-        // press. Left/right/middle are gesture-driven and handled on release.
+        // Left/middle/right start a speculative touch hold that becomes a drag
+        // if the cursor moves, or a tap on release. Back/forward (X1/X2) drive
+        // system navigation, fired on press (no touch gesture).
         when (event.id) {
+          MouseButton.LEFT, MouseButton.MIDDLE, MouseButton.RIGHT -> {
+            mouseButtonDown =
+              MouseButtonState(event.id, mousePointerLayout.x, mousePointerLayout.y)
+            val fingers =
+              when (event.id) {
+                MouseButton.MIDDLE -> 3
+                MouseButton.RIGHT -> 2
+                else -> 1
+              }
+            startSpeculativeHold(
+              mousePointerLayout.x.toFloat(),
+              mousePointerLayout.y.toFloat(),
+              fingers,
+            )
+          }
           MouseButton.X1_BACK -> performGlobalAction(GLOBAL_ACTION_BACK)
           // X2 ("forward") -> Recents: there is no forward-navigation concept on
           // Android, so Recents is the most useful system-wide mapping for the
@@ -679,16 +1041,35 @@ class GlobalInputService : AccessibilityService() {
 
       MouseEvent.Type.Up -> {
         log.debug { "Up [$event]" }
-        // Only the primary button performs a click gesture on release; other
-        // buttons (right/middle/back/forward) have no tap behavior here.
-        if (event.id == MouseButton.LEFT) {
-          clickGesture()
+        val buttonState = mouseButtonDown
+        mouseButtonDown = null
+        // Side buttons fired their global action on Down; nothing to do here.
+        if (event.id == MouseButton.X1_BACK || event.id == MouseButton.X2_FORWARD) return
+        val currentX = mousePointerLayout.x.toFloat()
+        val currentY = mousePointerLayout.y.toFloat()
+        val dragState = activeDragState
+        if (dragState != null) {
+          // Release the held touch (a speculative hold that may or may not have
+          // become a drag) at the current pointer position.
+          endDragGesture(currentX, currentY)
+          return
         }
+        // Defensive fallback (Down always starts a hold for L/M/R): tap.
+        val heldMs = buttonState?.let { System.currentTimeMillis() - it.downTime } ?: 100L
+        tapGesture(currentX, currentY, heldMs)
       }
 
       MouseEvent.Type.Wheel -> {
         log.debug { "Wheel [${event.x}, ${event.y}]" }
-        scrollBy(event.x, event.y)
+        // Ctrl + wheel = pinch/spread zoom; otherwise our magnitude-aware wheel.
+        val controlHeld =
+          keyboardManager.state.value.modifierKeys.modifierKeys
+            .contains(Keyboard.ModifierKey.Control)
+        if (controlHeld) {
+          if (event.y > 0) spreadGesture() else pinchGesture()
+        } else {
+          scrollBy(event.x, event.y)
+        }
       }
     }
   }
@@ -957,6 +1338,9 @@ class GlobalInputService : AccessibilityService() {
 
     /** How long (ms) the wake lock is held to turn the screen on for input. */
     private const val WAKE_ON_INPUT_MS = 3_000L
+
+    /** Delay (ms) after a disconnect before auto-showing the system IME picker. */
+    private const val IME_PICKER_DELAY_MS = 10_000L
 
     private val TAG = GlobalInputService::class.java.simpleName
     private val log =

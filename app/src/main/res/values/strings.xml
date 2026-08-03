@@ -92,6 +92,7 @@
     <string name="permission_dialog_buttons_dismiss">Ignore</string>
     <string name="permission_dialog_nearby_devices_message">Deskflow needs to be able to search for nearby devices on your network.</string>
     <string name="permission_dialog_ime_enabled_message">In order to use Deskflow, you must enable the Deskflow keyboard in settings.</string>
+    <string name="keyboard_picker_button_desc">Switch keyboard</string>
 
 
 </resources>
