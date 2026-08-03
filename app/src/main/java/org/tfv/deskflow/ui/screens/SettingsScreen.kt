@@ -54,7 +54,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import org.tfv.deskflow.R
 import org.tfv.deskflow.client.util.logging.KLoggingManager
-import org.tfv.deskflow.data.AndroidKeystoreClientCertificateProvider
+import org.tfv.deskflow.data.DeskflowClientCertificateProvider
 import org.tfv.deskflow.data.appPrefsStore
 import org.tfv.deskflow.data.aidl.ScreenState
 import org.tfv.deskflow.data.models.copy
@@ -253,12 +253,12 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp)
                 .verticalScroll(innerScrollState),
           ) {
-            // This device's client-certificate fingerprint, shown once it exists
-            // (after the first TLS connect), so it can be registered on a PeerAuth
+            // This device's client-certificate fingerprint (shown once it exists,
+            // i.e. after the first TLS connect) for registration on a PeerAuth
             // (mutual-TLS) server. Read-only: never generates a cert from the UI.
             val clientCertFingerprint = remember {
               runCatching {
-                AndroidKeystoreClientCertificateProvider().fingerprintIfPresent()
+                DeskflowClientCertificateProvider(ctx).fingerprintIfPresent()
               }.getOrNull()
             }
             if (clientCertFingerprint != null) {

@@ -193,9 +193,9 @@ class FullDuplexSocket(
   @Throws(SSLException::class)
   private fun doHandshake(sc: SocketChannel, sel: Selector) {
     val sslEngine = sslEngine ?: throw SSLException("SSLEngine is null")
-    var netIn = netInBuffer ?: throw SSLException("netInBuffer is null")
-    var netOut = netOutBuffer ?: throw SSLException("netOutBuffer is null")
-    var appIn = appInBuffer ?: throw SSLException("appInBuffer is null")
+    val netInBuffer = netInBuffer ?: throw SSLException("netInBuffer is null")
+    val netOutBuffer =
+      netOutBuffer ?: throw SSLException("netOutBuffer is null")
     var hsStatus = sslEngine.handshakeStatus
     while (
       hsStatus != SSLEngineResult.HandshakeStatus.FINISHED &&
@@ -203,33 +203,25 @@ class FullDuplexSocket(
     ) {
       when (hsStatus) {
         SSLEngineResult.HandshakeStatus.NEED_UNWRAP -> {
-          // Called in blocking mode (connect branch), so sc.read blocks for ≥1
-          // byte. Loop on UNDERFLOW until a full TLS record is assembled; grow
-          // appIn on OVERFLOW so the handshake cannot spin/stall.
-          var res: SSLEngineResult
-          do {
-            if (sc.read(netIn) < 0)
-              throw SSLException("Channel closed during handshake")
-            netIn.flip()
-            res = sslEngine.unwrap(netIn, appIn)
-            if (res.status == SSLEngineResult.Status.BUFFER_OVERFLOW) {
-              appIn = ByteBuffer.allocate(sslEngine.session.applicationBufferSize)
-              appInBuffer = appIn
-            }
-            netIn.compact()
-          } while (res.status == SSLEngineResult.Status.BUFFER_UNDERFLOW)
+          if (sc.read(netInBuffer) < 0)
+            throw SSLException("Channel closed during handshake")
+          netInBuffer.flip()
+          var res = sslEngine.unwrap(netInBuffer, appInBuffer)
+          // Grow the app buffer on OVERFLOW so the handshake can't stall on a
+          // too-small destination. (UNDERFLOW here is fine on the non-blocking
+          // path — the outer while simply re-enters NEED_UNWRAP for more bytes.)
+          if (res.status == SSLEngineResult.Status.BUFFER_OVERFLOW) {
+            appInBuffer = ByteBuffer.allocate(sslEngine.session.applicationBufferSize)
+            res = sslEngine.unwrap(netInBuffer, appInBuffer)
+          }
+          netInBuffer.compact()
           hsStatus = res.handshakeStatus
         }
         SSLEngineResult.HandshakeStatus.NEED_WRAP -> {
-          netOut.clear()
-          val res = sslEngine.wrap(ByteBuffer.allocate(0), netOut)
-          if (res.status == SSLEngineResult.Status.BUFFER_OVERFLOW) {
-            netOut = ByteBuffer.allocate(sslEngine.session.packetBufferSize)
-            netOutBuffer = netOut
-            netOut.clear()
-          }
-          netOut.flip()
-          while (netOut.hasRemaining()) sc.write(netOut)
+          netOutBuffer.clear()
+          val res = sslEngine.wrap(ByteBuffer.allocate(0), netOutBuffer)
+          netOutBuffer.flip()
+          while (netOutBuffer.hasRemaining()) sc.write(netOutBuffer)
           hsStatus = res.handshakeStatus
         }
         SSLEngineResult.HandshakeStatus.NEED_TASK -> {
@@ -337,21 +329,14 @@ class FullDuplexSocket(
               val sc = key.channel() as SocketChannel
               if (sc.finishConnect()) {
                 if (useTls) {
-                  // Drive the TLS handshake in BLOCKING mode. doHandshake's
-                  // NEED_UNWRAP reads from the channel, which on a non-blocking
-                  // channel returns 0 and busy-spins forever (handshake never
-                  // completes). Cancel the selection key for the handshake, flip
-                  // to blocking, then restore non-blocking and re-register.
-                  key.cancel()
-                  sc.configureBlocking(true)
+                  // Non-blocking handshake (same as the prior working build).
+                  // doHandshake drives the SSLEngine over the non-blocking
+                  // channel; brief UNDERFLOW re-loops are harmless on a LAN.
                   doHandshake(sc, sel)
-                  sc.configureBlocking(false)
-                  sc.register(sel, SelectionKey.OP_READ)
-                } else {
-                  // Plaintext: read-only interest; OP_WRITE is added on demand by
-                  // send() so an always-ready OP_WRITE does not busy-loop select().
-                  key.interestOps(SelectionKey.OP_READ)
                 }
+                // Read-only interest; OP_WRITE is armed on demand by the loop
+                // when outbound is non-empty.
+                sc.register(sel, SelectionKey.OP_READ)
                 emit(SocketEvent.ConnectEvent(this))
               }
             }

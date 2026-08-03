@@ -65,7 +65,7 @@ import org.tfv.deskflow.data.aidl.IConnectionServiceCallback
 import org.tfv.deskflow.data.aidl.Result
 import org.tfv.deskflow.data.aidl.ScreenState
 import org.tfv.deskflow.data.appPrefsStore
-import org.tfv.deskflow.data.AndroidKeystoreClientCertificateProvider
+import org.tfv.deskflow.data.DeskflowClientCertificateProvider
 import org.tfv.deskflow.data.TrustedServersFileStore
 import org.tfv.deskflow.data.models.AppPrefs
 import org.tfv.deskflow.data.models.AppPrefsKt.ScreenConfigKt.serverConfig
@@ -141,9 +141,8 @@ class ConnectionService : Service() {
   private val client =
     Client(
       trustStore = TrustedServersFileStore(this),
-      // Always have a client cert ready; it is only presented when the server
-      // requests one (Deskflow PeerAuth). Encrypted-mode servers never request it.
-      clientCertProvider = AndroidKeystoreClientCertificateProvider(),
+      // Software-backed client cert for PeerAuth (the server requires one).
+      clientCertProvider = DeskflowClientCertificateProvider(this),
     )
 
   /** The connection state model */
