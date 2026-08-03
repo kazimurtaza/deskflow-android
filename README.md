@@ -12,7 +12,9 @@ A **near** fully functional [Deskflow (deskflow.org)](https://deskflow.org) clie
   * [Table of Contents](#table-of-contents)
   * [Features & Limitations](#features--limitations)
   * [Installation](#installation)
+    * [F-Droid](#f-droid)
     * [Google Play](#google-play)
+    * [Github](#github)
     * [Build manually](#build-manually)
   * [Config](#config-)
     * [Deskflow Server](#deskflow-server)
@@ -44,10 +46,19 @@ A **near** fully functional [Deskflow (deskflow.org)](https://deskflow.org) clie
 
 ## Installation
 
+### F-Droid
+
+[<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png"
+     alt="Get it on F-Droid"
+     height="80">](https://f-droid.org/packages/org.tfv.deskflow/)
 
 ### Google Play
 
 Coming soon
+
+### Github
+
+Download the latest APK from the [Releases Section](https://github.com/jglanz/deskflow-android/releases/latest).
 
 ### Build manually
 
