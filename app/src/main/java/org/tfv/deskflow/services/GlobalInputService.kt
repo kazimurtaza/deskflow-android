@@ -45,6 +45,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PersistableBundle
+import android.os.PowerManager
 import android.util.Log
 import android.view.Gravity
 import android.view.View
@@ -107,6 +108,10 @@ class GlobalInputService : AccessibilityService() {
 
   private val audio by lazy {
     getSystemService(AudioManager::class.java)
+  }
+
+  private val powerManager by lazy {
+    getSystemService(PowerManager::class.java)
   }
 
   /**
@@ -403,12 +408,23 @@ class GlobalInputService : AccessibilityService() {
                 }
               }
 
-              is ScreenEvent.Enter, is ScreenEvent.Leave -> {
+              is ScreenEvent.Enter -> {
                 // Re-sync the pointer delta baseline on screen transitions so the
                 // first move after (re-)entry is an absolute jump, not a scaled
                 // delta from a stale server position.
                 lastServerX = Int.MIN_VALUE
                 lastServerY = Int.MIN_VALUE
+                // Pointer is back on this screen: re-show the cursor overlay
+                // (hidden on Leave). Idempotent + overlay-permission-guarded.
+                showMousePointer()
+              }
+
+              is ScreenEvent.Leave -> {
+                lastServerX = Int.MIN_VALUE
+                lastServerY = Int.MIN_VALUE
+                // Pointer left this screen: hide the local cursor so it isn't
+                // left stranded on a panel the user can't see/interact with.
+                hideMousePointer()
               }
 
               else -> {}
@@ -487,13 +503,10 @@ class GlobalInputService : AccessibilityService() {
   override fun onDestroy() {
     serviceScope.cancel()
     serviceClient.unbind()
-    // Only the overlay-permission path in setupMousePointer() ever addView()s
-    // the pointer; removing it unconditionally throws IllegalArgumentException
-    // (and crashes the service) when the view was never added.
-    if (mousePointerVisible) {
-      windowManager.removeView(mousePointerView)
-      mousePointerVisible = false
-    }
+    // Only the overlay-permission path in setupMousePointer()/showMousePointer()
+    // ever addView()s the pointer; removing it unconditionally throws
+    // IllegalArgumentException (and crashes the service) when never added.
+    hideMousePointer()
     super.onDestroy()
   }
 
@@ -595,7 +608,42 @@ class GlobalInputService : AccessibilityService() {
     return nx to ny
   }
 
+  /**
+   * Turn the screen on if it is currently off.
+   *
+   * SCREEN_BRIGHT_WAKE_LOCK + ACQUIRE_CAUSES_WAKEUP is the only route to wake
+   * the display from a background context (the modern Activity flags need a
+   * visible activity). Both flags are deprecated but remain the supported
+   * mechanism for this case. Acquired with a short timeout + ON_AFTER_RELEASE so
+   * it self-releases and hands control back to the normal screen-off timer.
+   *
+   * Guarded by [powerManager.isInteractive] so it is a cheap no-op while the
+   * screen is already on. Caveat: once in deep Doze the TCP connection is
+   * frozen, so no event arrives to trigger this -- reliable right after the
+   * screen turns off or while charging, not after long idle on battery.
+   */
+  @Suppress("DEPRECATION")
+  private fun wakeScreenIfAsleep() {
+    if (powerManager.isInteractive) return
+    try {
+      powerManager
+        .newWakeLock(
+          PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+            PowerManager.ACQUIRE_CAUSES_WAKEUP or
+            PowerManager.ON_AFTER_RELEASE,
+          "deskflow:mouse-wake",
+        )
+        .acquire(WAKE_ON_INPUT_MS)
+    } catch (err: Exception) {
+      log.warn(err) { "Failed to wake screen" }
+    }
+  }
+
   private fun onMouseEvent(event: MouseEvent) {
+    // Any mouse activity from the server means the user is reaching for this
+    // screen -- wake it if it's asleep so the pointer isn't moving on a dark
+    // panel.
+    wakeScreenIfAsleep()
     when (event.type) {
       MouseEvent.Type.Move -> {
         // The server streams ABSOLUTE positions (DMMV, since the server runs
@@ -622,9 +670,10 @@ class GlobalInputService : AccessibilityService() {
         // press. Left/right/middle are gesture-driven and handled on release.
         when (event.id) {
           MouseButton.X1_BACK -> performGlobalAction(GLOBAL_ACTION_BACK)
-          // X2 ("forward") has no equivalent AccessibilityService global action
-          // — only Back is exposed system-wide — so it is a no-op for now.
-          MouseButton.X2_FORWARD -> Unit
+          // X2 ("forward") -> Recents: there is no forward-navigation concept on
+          // Android, so Recents is the most useful system-wide mapping for the
+          // forward side button (consistent with Back on the back button).
+          MouseButton.X2_FORWARD -> performGlobalAction(GLOBAL_ACTION_RECENTS)
         }
       }
 
@@ -645,18 +694,25 @@ class GlobalInputService : AccessibilityService() {
   }
 
   /** Set up the pointer view and add it to the window manager. */
-  private fun setupMousePointer() {
-    when (canDrawOverlays()) {
-      true -> {
-        if (!mousePointerVisible) {
-          windowManager.addView(mousePointerView, mousePointerLayout)
-          mousePointerVisible = true
-        }
-      }
+  private fun setupMousePointer() = showMousePointer()
 
-      false -> {
-        log.warn { "Overlay permissions not granted yet" }
-      }
+  /** Show the mouse pointer overlay (overlay-permission-guarded + idempotent). */
+  private fun showMousePointer() {
+    if (!canDrawOverlays()) {
+      log.warn { "Overlay permissions not granted yet" }
+      return
+    }
+    if (!mousePointerVisible) {
+      windowManager.addView(mousePointerView, mousePointerLayout)
+      mousePointerVisible = true
+    }
+  }
+
+  /** Hide the mouse pointer overlay (idempotent; safe if never shown). */
+  private fun hideMousePointer() {
+    if (mousePointerVisible) {
+      windowManager.removeView(mousePointerView)
+      mousePointerVisible = false
     }
   }
 
@@ -898,6 +954,9 @@ class GlobalInputService : AccessibilityService() {
   companion object {
     private const val CHANNEL_ID = "deskflow_service_channel"
     private const val NOTIF_IME_NOT_SETUP_ID = 1
+
+    /** How long (ms) the wake lock is held to turn the screen on for input. */
+    private const val WAKE_ON_INPUT_MS = 3_000L
 
     private val TAG = GlobalInputService::class.java.simpleName
     private val log =

@@ -25,15 +25,28 @@
 package org.tfv.deskflow.ext
 
 import android.content.Context
+import android.view.WindowManager
 import org.tfv.deskflow.client.models.Size
 import org.tfv.deskflow.client.models.SizeF
 
 data class ScreenSize(val px: Size, val dp: SizeF, val scale: Float)
 
+/**
+ * The full display size, in pixels and dp.
+ *
+ * Deliberately NOT `resources.displayMetrics`: that reports the area available
+ * to the app, which excludes the status/navigation-bar insets. This value is
+ * reported to the Deskflow server as the screen dimensions, so the inset-reduced
+ * size made the remote pointer stop short of the real edges (on a 2000x1200
+ * landscape tablet the bottom ~59px, incl. the gesture handle, was unreachable).
+ * `currentWindowMetrics.bounds` is the full display area, insets included.
+ */
 fun Context.getScreenSize(): ScreenSize {
     val dm = resources.displayMetrics
-    val widthPx = dm.widthPixels
-    val heightPx = dm.heightPixels
+    val bounds =
+        getSystemService(WindowManager::class.java).currentWindowMetrics.bounds
+    val widthPx = bounds.width()
+    val heightPx = bounds.height()
     val widthDp = widthPx / dm.density
     val heightDp = heightPx / dm.density
     return ScreenSize(Size(widthPx, heightPx), SizeF(widthDp, heightDp), widthPx.toFloat() / widthDp)
