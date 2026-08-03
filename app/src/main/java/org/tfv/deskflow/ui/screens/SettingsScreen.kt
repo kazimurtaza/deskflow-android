@@ -66,6 +66,7 @@ import org.tfv.deskflow.ui.components.DeskflowCardSubtitle
 import org.tfv.deskflow.ui.components.DeskflowCardTitle
 import org.tfv.deskflow.ui.components.IAppState
 import org.tfv.deskflow.ui.components.LocalSnackbarHostState
+import org.tfv.deskflow.ui.components.currentDeviceConfig
 import org.tfv.deskflow.ui.components.deskflowCardDefaultContainerModifier
 import org.tfv.deskflow.ui.components.deskflowCardStyleDefaults
 import org.tfv.deskflow.ui.components.preview.PreviewDeskflowThemedRoot
@@ -124,6 +125,7 @@ fun SettingsScreen(
     }
 
     is SettingsUiState.Success -> {
+      val (isPortrait, _, _) = currentDeviceConfig()
       val textFieldColors =
         TextFieldDefaults
           .colors( //        unfocusedContainerColor = Color.Transparent,
@@ -181,14 +183,16 @@ fun SettingsScreen(
             .CenterHorizontally, // (optionally) center them horizontally too
       ) {
         DeskflowCard(
-          header = {
-            DeskflowCardTitle(R.string.settings_screen_title)
-            DeskflowCardSubtitle(R.string.settings_screen_instructions)
-          },
+          header = if (isPortrait) {
+            {
+              DeskflowCardTitle(R.string.settings_screen_title)
+              DeskflowCardSubtitle(R.string.settings_screen_instructions)
+            }
+          } else null,
           style =
             deskflowCardStyleDefaults(
               containerModifier =
-                deskflowCardDefaultContainerModifier().padding(vertical = 16.dp)
+                deskflowCardDefaultContainerModifier().padding(vertical = if (isPortrait) 16.dp else 4.dp)
             ),
           useFooterStyle = false,
           useContentStyle = false,
@@ -253,6 +257,10 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp)
                 .verticalScroll(innerScrollState),
           ) {
+            if (!isPortrait) {
+              DeskflowCardTitle(R.string.settings_screen_title)
+              DeskflowCardSubtitle(R.string.settings_screen_instructions)
+            }
             // This device's client-certificate fingerprint (shown once it exists,
             // i.e. after the first TLS connect) for registration on a PeerAuth
             // (mutual-TLS) server. Read-only: never generates a cert from the UI.
