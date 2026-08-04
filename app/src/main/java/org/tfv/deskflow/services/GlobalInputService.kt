@@ -76,6 +76,7 @@ import org.tfv.deskflow.client.util.Keyboard
 import org.tfv.deskflow.client.util.logging.KLoggingManager
 import org.tfv.deskflow.data.appPrefsStore
 import org.tfv.deskflow.components.GlobalKeyboardManager
+import org.tfv.deskflow.ext.ScreenSize
 import org.tfv.deskflow.ext.canDrawOverlays
 import org.tfv.deskflow.ext.getScreenSize
 import org.tfv.deskflow.ext.sendServiceConnectionEvent
@@ -460,6 +461,7 @@ class GlobalInputService : AccessibilityService() {
                 // delta from a stale server position.
                 lastServerX = Int.MIN_VALUE
                 lastServerY = Int.MIN_VALUE
+                cachedScreenSize = null // recompute on (re-)entry (rotation may have occurred)
                 // Pointer is back on this screen: re-show the cursor overlay
                 // (hidden on Leave). Idempotent + overlay-permission-guarded.
                 showMousePointer()
@@ -468,6 +470,7 @@ class GlobalInputService : AccessibilityService() {
               is ScreenEvent.Leave -> {
                 lastServerX = Int.MIN_VALUE
                 lastServerY = Int.MIN_VALUE
+                cachedScreenSize = null
                 // Pointer left this screen: hide the local cursor so it isn't
                 // left stranded on a panel the user can't see/interact with.
                 hideMousePointer()
@@ -583,6 +586,7 @@ class GlobalInputService : AccessibilityService() {
   override fun onDestroy() {
     serviceScope.cancel()
     serviceClient.unbind()
+    resetDragState()
     // Only the overlay-permission path in setupMousePointer()/showMousePointer()
     // ever addView()s the pointer; removing it unconditionally throws
     // IllegalArgumentException (and crashes the service) when never added.
@@ -590,33 +594,6 @@ class GlobalInputService : AccessibilityService() {
     super.onDestroy()
   }
 
-  /**
-   * Perform a click on the closest node to the mouse pointer. This is used to
-   * simulate a mouse click on the screen.
-   * > Example: Used for clicking on buttons or input fields in the global input
-   * > service.
-   */
-  @Suppress("unused")
-  private fun clickClosestNodeToPointer() {
-    val nodeInfo = rootInActiveWindow ?: return
-    val nearestNodeToMouse: AccessibilityNodeInfo? =
-      findSmallestNodeAtPoint(
-        nodeInfo,
-        mousePointerLayout.x,
-        mousePointerLayout.y,
-      )
-    if (nearestNodeToMouse != null) {
-      logNodeHierarchy(nearestNodeToMouse, 0)
-      nearestNodeToMouse.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-    }
-  }
-
-  /**
-   * Perform a click gesture at the current mouse pointer position. This is used
-   * to simulate a mouse click on the screen.
-   * > Example: Used for clicking on buttons or input fields in the global input
-   * > service.
-   */
   /**
    * Perform a tap/click gesture at the specified position.
    * @param duration 100ms = click, 500ms+ = long press, 1000ms+ = context menu.
@@ -710,8 +687,7 @@ class GlobalInputService : AccessibilityService() {
 
       override fun onCancelled(gestureDescription: GestureDescription) {
         log.warn { "Speculative hold cancelled" }
-        activeDragState = null
-        dragGestureInProgress = false
+        resetDragState()
       }
     }, globalInputHandler)
   }
@@ -773,8 +749,7 @@ class GlobalInputService : AccessibilityService() {
 
       override fun onCancelled(gestureDescription: GestureDescription) {
         log.warn { "Drag continuation cancelled" }
-        activeDragState = null
-        dragGestureInProgress = false
+        resetDragState()
       }
     }, globalInputHandler)
   }
@@ -819,16 +794,21 @@ class GlobalInputService : AccessibilityService() {
 
     dispatchGesture(builder.build(), object : GestureResultCallback() {
       override fun onCompleted(gestureDescription: GestureDescription) {
-        activeDragState = null
-        dragGestureInProgress = false
+        resetDragState()
       }
 
       override fun onCancelled(gestureDescription: GestureDescription) {
         log.warn { "Drag end cancelled" }
-        activeDragState = null
-        dragGestureInProgress = false
+        resetDragState()
       }
     }, globalInputHandler)
+  }
+
+  /** Clear ALL drag state; called from every drag callback's onCancelled and teardown. */
+  private fun resetDragState() {
+    activeDragState = null
+    dragGestureInProgress = false
+    mouseButtonDown = null
   }
 
   /** True if movement from (start) to (current) exceeds [dragThreshold]. */
@@ -898,20 +878,31 @@ class GlobalInputService : AccessibilityService() {
   }
 
   /**
+   * Cached full-screen size. WindowMetrics is non-trivial to compute and was
+   * called per mouse-move; cached and invalidated on screen transitions and
+   * window-state changes (rotation / fold) so clamp bounds stay correct.
+   */
+  @Volatile private var cachedScreenSize: ScreenSize? = null
+
+  /** Screen size, cached; recomputed lazily after invalidation. */
+  private fun screenPx(): ScreenSize =
+    cachedScreenSize ?: getScreenSize().also { cachedScreenSize = it }
+
+  /**
    * Move the mouse pointer to the specified coordinates. This is used to update
    * the position of the mouse pointer on the screen.
    * > Example: Used for mouse movement in the global input service.
    */
   private fun moveMousePointer(x: Int, y: Int) {
-    if (!mousePointerVisible) return
-
-    val screenSize = getScreenSize()
-    log.debug {
-      "Cursor move to [${x}, ${y}] with size(${screenSize.px.width},${screenSize.px.height})"
-    }
+    // Keep the model position current even while the overlay is hidden (after a
+    // Leave) so the first Move on re-Enter doesn't briefly flash at the old spot.
     mousePointerLayout.x = x
     mousePointerLayout.y = y
-
+    if (!mousePointerVisible) return
+    log.debug {
+      val s = screenPx()
+      "Cursor move to [${x}, ${y}] with size(${s.px.width},${s.px.height})"
+    }
     windowManager.updateViewLayout(mousePointerView, mousePointerLayout)
   }
 
@@ -947,7 +938,7 @@ class GlobalInputService : AccessibilityService() {
     val dy = (serverY - lastServerY) * s
     lastServerX = serverX
     lastServerY = serverY
-    val screen = getScreenSize().px
+    val screen = screenPx().px
     val nx = (mousePointerLayout.x + dx).toInt().coerceIn(0, screen.width)
     val ny = (mousePointerLayout.y + dy).toInt().coerceIn(0, screen.height)
     return nx to ny
@@ -1017,6 +1008,10 @@ class GlobalInputService : AccessibilityService() {
         // system navigation, fired on press (no touch gesture).
         when (event.id) {
           MouseButton.LEFT, MouseButton.MIDDLE, MouseButton.RIGHT -> {
+            // Ignore a second press while a drag is already in progress (mouse
+            // chording / duplicate Down) so mouseButtonDown stays in sync with
+            // the active drag.
+            if (activeDragState != null) return
             mouseButtonDown =
               MouseButtonState(event.id, mousePointerLayout.x, mousePointerLayout.y)
             val fingers =
@@ -1054,12 +1049,17 @@ class GlobalInputService : AccessibilityService() {
           endDragGesture(currentX, currentY)
           return
         }
-        // Defensive fallback (Down always starts a hold for L/M/R): tap.
-        val heldMs = buttonState?.let { System.currentTimeMillis() - it.downTime } ?: 100L
-        tapGesture(currentX, currentY, heldMs)
+        // activeDragState == null here only if the drag was cancelled
+        // (onCancelled already cleared state) or no hold was armed. Do NOT
+        // synthesize a phantom tap -- the speculative-hold path handles taps via
+        // endDragGesture, and a cancelled drag must not inject a stray touch.
+        log.debug { "Up with no active drag state; not synthesizing a tap" }
       }
 
       MouseEvent.Type.Wheel -> {
+        // Don't dispatch a scroll/zoom gesture while a drag is in flight: Android
+        // can't merge it onto the ongoing touch and would cancel the drag.
+        if (activeDragState != null) return
         log.debug { "Wheel [${event.x}, ${event.y}]" }
         // Ctrl + wheel = pinch/spread zoom; otherwise our magnitude-aware wheel.
         val controlHeld =
@@ -1198,6 +1198,7 @@ class GlobalInputService : AccessibilityService() {
         checkIMESetup()
       }
       AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+        cachedScreenSize = null // rotation / fold / app transition may change the display bounds
         val pkgName = rootInActiveWindow?.packageName
         isHomeScreenActiveFlow.value =
           pkgName == null || knownHomePackages.contains(pkgName)
@@ -1241,7 +1242,7 @@ class GlobalInputService : AccessibilityService() {
     wheelAccumX = 0
     wheelAccumY = 0
 
-    val screen = getScreenSize().px
+    val screen = screenPx().px
     // One wheel unit ~= 12% of the screen height (tunable); clamped to a sane
     // range so extreme deltas don't overscroll the whole viewport.
     val pxPerUnit =

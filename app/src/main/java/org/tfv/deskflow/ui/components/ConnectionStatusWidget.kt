@@ -165,7 +165,10 @@ fun ConnectionStatusWidget(
   ) {
     val screen = connState.screen
     val server = screen?.server
-    if (server != null) {
+    // Only show connection details when actually connected; otherwise the
+    // 'No active connection' empty-state is shown (server is always populated
+    // from AppPrefs, so gating on the live connection makes it accurate).
+    if (connState.isConnected && connState.ackReceived && server != null) {
       Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxWidth().padding(16.dp)

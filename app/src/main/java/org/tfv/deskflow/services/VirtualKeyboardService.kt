@@ -470,7 +470,7 @@ class VirtualKeyboardService : InputMethodService() {
         if (action == null) {
           // No action registered for this special key
           // Only apply fallback if the special key has imeText defined
-          if (specialKey.imeText != null) {
+          if (specialKey.imeText != null && (et == null || !specialKey.terminalOnly)) {
             log.debug { "Special key detected with imeText: $specialKey" }
             applyCommand(specialKey.imeText, ic, et)
           } else {

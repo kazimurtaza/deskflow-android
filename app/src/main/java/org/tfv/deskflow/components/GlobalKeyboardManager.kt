@@ -124,7 +124,10 @@ open class GlobalKeyboardManager(
     val modKey = findModifierKey(event.id.toInt())
     if (modKey != null) {
       mutateState { state, manager ->
-        val isPressed = event.type == KeyboardEvent.Type.Down
+        // Treat Repeat as pressed (only Up clears); otherwise servers that
+        // auto-repeat a modifier (e.g. Linux Control_L) would de-press it mid-hold,
+        // silently breaking Ctrl+wheel zoom and Ctrl+letter shortcuts.
+        val isPressed = event.type != KeyboardEvent.Type.Up
         state.copy(
           modifierKeys =
             state.modifierKeys.updateModifierKeys(isPressed, modKey)
