@@ -62,13 +62,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.tfv.deskflow.R
 import org.tfv.deskflow.client.util.logging.KLoggingManager
-import org.tfv.deskflow.ext.canDrawOverlays
 import org.tfv.deskflow.ext.isAccessibilityServiceEnabled
 import org.tfv.deskflow.ext.isInputMethodServiceEnabled
 import org.tfv.deskflow.ext.launchInputMethodServiceSettings
 import org.tfv.deskflow.ext.observeAccessibilityStatus
 import org.tfv.deskflow.ext.requestAccessibilityEnabled
-import org.tfv.deskflow.ext.requestOverlayPermission
 import org.tfv.deskflow.services.GlobalInputService
 import org.tfv.deskflow.ui.annotations.PreviewAll
 import org.tfv.deskflow.ui.components.AppState
@@ -106,7 +104,6 @@ fun RootScreen(appState: IAppState) {
       log.info { "Accessibility service enabled: isEnabled=$isEnabled,isServiceEnabled=$isServiceEnabled" }
 
       appState.updatePermissions(
-        canDrawOverlays = context.canDrawOverlays(),
         accessibilityEnabled = isServiceEnabled,
         imeEnabled = context.isInputMethodServiceEnabled(),
       )
@@ -140,8 +137,6 @@ fun RootScreen(appState: IAppState) {
           // COMPLEX PERMISSIONS
           val imeEnabled by
             appState.permissionIMEEnabled.collectAsStateWithLifecycle()
-          val canDrawOverlays by
-            appState.permissionCanDrawOverlays.collectAsStateWithLifecycle()
           val accessibilityEnabled by
             appState.permissionAccessibilityEnabled
               .collectAsStateWithLifecycle()
@@ -156,12 +151,7 @@ fun RootScreen(appState: IAppState) {
               android.Manifest.permission.NEARBY_WIFI_DEVICES
             )
 
-          if (!canDrawOverlays) {
-            PermissionsNeededDialog(
-              text = R.string.permission_dialog_overlay_message,
-              onClick = { context.requestOverlayPermission() },
-            )
-          } else if (!accessibilityEnabled) {
+          if (!accessibilityEnabled) {
             PermissionsNeededDialog(
               text = R.string.permission_dialog_accessibility_service_message,
               onClick = { context.requestAccessibilityEnabled() },
@@ -203,16 +193,14 @@ private fun updatePermissions(
   appState: IAppState,
   permissionsGranted: MutableState<Boolean>,
 ) {
-  val canDrawOverlays = context.canDrawOverlays()
   val imeEnabled = context.isInputMethodServiceEnabled()
   val isAccessibilityEnabled =
     context.isAccessibilityServiceEnabled(GlobalInputService::class.java)
   log.info {
-    "updatePermissions(canDrawOverlays=$canDrawOverlays,isAccessibilityEnabled=$isAccessibilityEnabled)"
+    "updatePermissions(isAccessibilityEnabled=$isAccessibilityEnabled)"
   }
   permissionsGranted.value =
     appState.updatePermissions(
-      canDrawOverlays,
       isAccessibilityEnabled,
       imeEnabled,
     )

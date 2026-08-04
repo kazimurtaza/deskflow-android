@@ -96,19 +96,15 @@ interface IAppState {
   /** Exactly what AppState.navigateToHome() does */
   fun navigateToHome()
 
-  /** Mirrors the internal `_permissionCanDrawOverlays` StateFlow */
-  val permissionCanDrawOverlays: StateFlow<Boolean>
-
   /** Mirrors the internal `_permissionAccessibilityEnabled` StateFlow */
   val permissionAccessibilityEnabled: StateFlow<Boolean>
 
   val permissionIMEEnabled: StateFlow<Boolean>
   /**
-   * Updates both overlay‐permission and accessibility‐permission flags. Returns
-   * `true` only if both booleans are true.
+   * Updates the accessibility-permission and IME flags. Returns `true` only if
+   * both are true.
    */
   fun updatePermissions(
-    canDrawOverlays: Boolean,
     accessibilityEnabled: Boolean,
     imeEnabled: Boolean
   ): Boolean
@@ -193,24 +189,19 @@ class AppState(
   }
 
   private val permissionIMEEnabledEditable = MutableStateFlow(false)
-  private val permissionCanDrawOverlaysEditable = MutableStateFlow(false)
   private val permissionAccessibilityEnabledEditable = MutableStateFlow(false)
 
   override val permissionIMEEnabled: StateFlow<Boolean>
     get() = permissionIMEEnabledEditable.asStateFlow()
-  override val permissionCanDrawOverlays =
-    permissionCanDrawOverlaysEditable.asStateFlow()
   override val permissionAccessibilityEnabled =
     permissionAccessibilityEnabledEditable.asStateFlow()
 
   override fun updatePermissions(
-    canDrawOverlays: Boolean,
     accessibilityEnabled: Boolean,
     imeEnabled: Boolean
   ): Boolean {
-    permissionCanDrawOverlaysEditable.value = canDrawOverlays
     permissionAccessibilityEnabledEditable.value = accessibilityEnabled
     permissionIMEEnabledEditable.value = imeEnabled
-    return canDrawOverlays && accessibilityEnabled && imeEnabled
+    return accessibilityEnabled && imeEnabled
   }
 }

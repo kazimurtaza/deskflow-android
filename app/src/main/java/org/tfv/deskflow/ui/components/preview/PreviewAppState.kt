@@ -107,21 +107,15 @@ class PreviewAppState(
   override val permissionIMEEnabled =
     previewPermissionIMEEnabledFlow.asStateFlow()
 
-
-  val previewPermissionCanDrawOverlaysFlow = MutableStateFlow(initialPermissionsGranted)
-  override val permissionCanDrawOverlays =
-    previewPermissionCanDrawOverlaysFlow.asStateFlow()
-
   val previewPermissionAccessibilityEnabledFlow = MutableStateFlow(initialPermissionsGranted)
   override val permissionAccessibilityEnabled: StateFlow<Boolean> =
     previewPermissionAccessibilityEnabledFlow.asStateFlow()
 
   override fun updatePermissions(
-    canDrawOverlays: Boolean,
     accessibilityEnabled: Boolean,
     imeEnabled: Boolean
   ): Boolean {
-    return canDrawOverlays && accessibilityEnabled && imeEnabled
+    return accessibilityEnabled && imeEnabled
   }
 
   companion object {
