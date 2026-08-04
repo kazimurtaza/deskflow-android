@@ -41,6 +41,7 @@ import android.content.pm.PackageManager
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.hardware.display.DisplayManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -115,6 +116,13 @@ class GlobalInputService : AccessibilityService() {
   private val powerManager by lazy {
     getSystemService(PowerManager::class.java)
   }
+
+  private val displayManager by lazy {
+    getSystemService(DisplayManager::class.java)
+  }
+
+  /** Invalidates [cachedScreenSize] on display changes (rotation/fold/refresh). */
+  private var displayListener: DisplayManager.DisplayListener? = null
 
   /**
    * Flow to observe if the home screen is currently active. This is used to
@@ -586,31 +594,14 @@ class GlobalInputService : AccessibilityService() {
   override fun onDestroy() {
     serviceScope.cancel()
     serviceClient.unbind()
+    displayListener?.let { displayManager.unregisterDisplayListener(it) }
+    displayListener = null
     resetDragState()
     // Only the overlay-permission path in setupMousePointer()/showMousePointer()
     // ever addView()s the pointer; removing it unconditionally throws
     // IllegalArgumentException (and crashes the service) when never added.
     hideMousePointer()
     super.onDestroy()
-  }
-
-  /**
-   * Perform a tap/click gesture at the specified position.
-   * @param duration 100ms = click, 500ms+ = long press, 1000ms+ = context menu.
-   */
-  private fun tapGesture(
-    x: Float = mousePointerLayout.x.toFloat(),
-    y: Float = mousePointerLayout.y.toFloat(),
-    duration: Long = 100,
-  ) {
-    log.debug { "Tap gesture at [$x, $y] duration ${duration}ms" }
-
-    val path = Path().apply { moveTo(x, y) }
-    val gesture =
-      GestureDescription.Builder()
-        .addStroke(StrokeDescription(path, 0, duration))
-        .build()
-    dispatchGesture(gesture, gestureResultCallback, globalInputHandler)
   }
 
   /**
@@ -1177,6 +1168,16 @@ class GlobalInputService : AccessibilityService() {
 
     setupMousePointer()
 
+    // Track display changes (rotation, fold) so the cached screen size used for
+    // pointer clamping stays correct even inside apps that handle orientation
+    // themselves (android:configChanges) and don't fire window-state changes.
+    displayListener = object : DisplayManager.DisplayListener {
+      override fun onDisplayChanged(displayId: Int) { cachedScreenSize = null }
+      override fun onDisplayAdded(displayId: Int) {}
+      override fun onDisplayRemoved(displayId: Int) {}
+    }
+    displayManager.registerDisplayListener(displayListener, globalInputHandler)
+
     sendServiceConnectionEvent<GlobalInputService>()
 
     fetchHomePackages()
@@ -1370,28 +1371,6 @@ class GlobalInputService : AccessibilityService() {
           logNodeHierarchy(childNode, depth + 1)
         }
       }
-    }
-
-    private fun findSmallestNodeAtPoint(
-      sourceNode: AccessibilityNodeInfo,
-      x: Int,
-      y: Int,
-    ): AccessibilityNodeInfo? {
-      val bounds = Rect()
-      sourceNode.getBoundsInScreen(bounds)
-
-      if (!bounds.contains(x, y)) {
-        return null
-      }
-
-      for (i in 0..<sourceNode.childCount) {
-        val nearestSmaller =
-          findSmallestNodeAtPoint(sourceNode.getChild(i), x, y)
-        if (nearestSmaller != null) {
-          return nearestSmaller
-        }
-      }
-      return sourceNode
     }
   }
 }
