@@ -72,6 +72,7 @@ import org.tfv.deskflow.client.events.KeyboardEvent
 import org.tfv.deskflow.client.events.MouseEvent
 import org.tfv.deskflow.client.events.MouseButton
 import org.tfv.deskflow.client.events.ScreenEvent
+import org.tfv.deskflow.client.input.wheelScrollEndpoints
 import org.tfv.deskflow.client.models.ClipboardData
 import org.tfv.deskflow.client.util.Keyboard
 import org.tfv.deskflow.client.util.logging.KLoggingManager
@@ -1243,56 +1244,43 @@ class GlobalInputService : AccessibilityService() {
     wheelAccumY = 0
 
     val screen = screenPx().px
-    // The server's wheel delta is in WHEEL_DELTA units (±120 per notch, per the
-    // Barrier/Deskflow "DMWM" convention), not 1 per notch. Scroll ~16% of the
-    // screen height per notch → pixels per wheel unit = 16% / WHEEL_DELTA. The
-    // old 0.12*height assumed 1/notch, so each notch produced a stroke ~14x the
-    // screen (an accumulated burst far larger), making wheel scrolling
-    // dysfunctionally jumpy/overshooting instead of a measured ~16% per notch.
-    val pxPerUnit = screen.height * 0.16f / WHEEL_DELTA
     val duration = (150L + 8L * (abs(dx) + abs(dy))).coerceIn(150L, 400L)
 
     val cx = mousePointerLayout.x.toFloat()
     val cy = mousePointerLayout.y.toFloat()
-    val screenW = screen.width.toFloat()
-    val screenH = screen.height.toFloat()
+    // Magnitude (WHEEL_DELTA ±120/notch → ~16% screen/notch) and screen-edge
+    // clamping live in the pure, unit-tested wheelScrollEndpoints() helper.
+    val endpoints = wheelScrollEndpoints(
+      dx = dx,
+      dy = dy,
+      cx = cx,
+      cy = cy,
+      screenW = screen.width.toFloat(),
+      screenH = screen.height.toFloat(),
+    )
     val builder = GestureDescription.Builder()
 
     if (dy != 0) {
-      // Wheel up (dy > 0) should scroll the page UP (reveal content above), which
-      // on a touchscreen is a finger drag DOWN (content follows the finger). This
-      // matches the canonical #22 mapping; the old cy - dist was inverted.
-      val dist = (dy * pxPerUnit).toFloat()
-      // Clamp the stroke to the screen: StrokeDescription throws "Path bounds
-      // must not be negative" if the path exits the top/left, which silently
-      // dropped scrolls toward the nearest edge — the root cause of scroll-to-
-      // bottom failing under the old, huge wheel magnitude when the cursor sat
-      // near the top. Clamp keeps the notch (shortened) instead of losing it.
-      val endY = (cy + dist).coerceIn(0f, screenH)
+      // Wheel up (dy > 0) → page UP → finger drag DOWN (content follows finger).
       val path =
         Path().apply {
           moveTo(cx, cy)
-          lineTo(cx, endY)
+          lineTo(cx, endpoints.endY)
         }
       builder.addStroke(StrokeDescription(path, 0, duration))
     }
     if (dx != 0) {
-      // Horizontal wheel/tilt: dx > 0 (tilt right) scrolls right, which is a
-      // finger drag LEFT.
-      val dist = (dx * pxPerUnit).toFloat()
-      val endX = (cx - dist).coerceIn(0f, screenW)
+      // Horizontal wheel/tilt: dx > 0 (tilt right) → scroll right → finger drag LEFT.
       val path =
         Path().apply {
           moveTo(cx, cy)
-          lineTo(endX, cy)
+          lineTo(endpoints.endX, cy)
         }
       builder.addStroke(StrokeDescription(path, 0, duration))
     }
 
     globalInputPending = true
-    log.debug {
-      "scrollBy dx=$dx dy=$dy pxPerUnit=$pxPerUnit duration=$duration"
-    }
+    log.debug { "scrollBy dx=$dx dy=$dy duration=$duration endpoints=$endpoints" }
     dispatchGesture(builder.build(), gestureResultCallback, globalInputHandler)
   }
 
@@ -1356,9 +1344,6 @@ class GlobalInputService : AccessibilityService() {
 
     /** Delay (ms) after a disconnect before auto-showing the system IME picker. */
     private const val IME_PICKER_DELAY_MS = 10_000L
-
-    /** Mouse-wheel delta per notch (Windows WHEEL_DELTA); the Barrier/Deskflow "DMWM" wire unit. */
-    private const val WHEEL_DELTA = 120
 
     private val TAG = GlobalInputService::class.java.simpleName
     private val log =
