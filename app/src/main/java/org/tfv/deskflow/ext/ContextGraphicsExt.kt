@@ -39,12 +39,15 @@ data class ScreenSize(val px: Size, val dp: SizeF, val scale: Float)
  * reported to the Deskflow server as the screen dimensions, so the inset-reduced
  * size made the remote pointer stop short of the real edges (on a 2000x1200
  * landscape tablet the bottom ~59px, incl. the gesture handle, was unreachable).
- * `currentWindowMetrics.bounds` is the full display area, insets included.
+ * `maximumWindowMetrics.bounds` is the full display area, insets included, and is
+ * stable regardless of the foreground window. (currentWindowMetrics, from a Service,
+ * returns the FOREGROUND window's bounds -- which excludes system bars for non-
+ * edge-to-edge apps and left the bottom edge intermittently unreachable.)
  */
 fun Context.getScreenSize(): ScreenSize {
     val dm = resources.displayMetrics
     val bounds =
-        getSystemService(WindowManager::class.java).currentWindowMetrics.bounds
+        getSystemService(WindowManager::class.java).maximumWindowMetrics.bounds
     val widthPx = bounds.width()
     val heightPx = bounds.height()
     val widthDp = widthPx / dm.density

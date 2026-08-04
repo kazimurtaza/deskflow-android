@@ -1255,23 +1255,25 @@ class GlobalInputService : AccessibilityService() {
     val builder = GestureDescription.Builder()
 
     if (dy != 0) {
-      // Wheel "up" (dy > 0) scrolls content up: the touch path moves toward
-      // decreasing Y, preserving the prior swipe(up = true) convention.
+      // Wheel up (dy > 0) should scroll the page UP (reveal content above), which
+      // on a touchscreen is a finger drag DOWN (content follows the finger). This
+      // matches the canonical #22 mapping; the old cy - dist was inverted.
       val dist = (dy * pxPerUnit).toFloat()
       val path =
         Path().apply {
           moveTo(cx, cy)
-          lineTo(cx, cy - dist)
+          lineTo(cx, cy + dist)
         }
       builder.addStroke(StrokeDescription(path, 0, duration))
     }
     if (dx != 0) {
-      // Horizontal wheel/tilt: dx > 0 scrolls right (path toward +X).
+      // Horizontal wheel/tilt: dx > 0 (tilt right) scrolls right, which is a
+      // finger drag LEFT.
       val dist = (dx * pxPerUnit).toFloat()
       val path =
         Path().apply {
           moveTo(cx, cy)
-          lineTo(cx + dist, cy)
+          lineTo(cx - dist, cy)
         }
       builder.addStroke(StrokeDescription(path, 0, duration))
     }
