@@ -107,7 +107,7 @@ fun PermissionsNeededDialogPreview() {
   CompositionLocalProvider(LocalSnackbarHostState provides snackbarHostState) {
     DeskflowTheme {
       PermissionsNeededDialog(
-        text = R.string.permission_dialog_overlay_message,
+        text = R.string.permission_dialog_accessibility_service_message,
         onClick = {},
       )
     }
@@ -123,7 +123,7 @@ fun PermissionsNeededDialogNonRequiredPreview() {
     DeskflowTheme {
       PermissionsNeededDialog(
         required = false,
-        text = R.string.permission_dialog_overlay_message,
+        text = R.string.permission_dialog_accessibility_service_message,
         onClick = {},
       )
     }

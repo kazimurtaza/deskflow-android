@@ -41,7 +41,6 @@
 
     <string name="permission_dialog_title_required">Permissions Required</string>
     <string name="permission_dialog_title_optional">Grant Permission</string>
-    <string name="permission_dialog_overlay_message">Draw overlays permission is required to visualize a mouse pointer, press OK to open settings</string>
     <string name="permission_dialog_dismissed_message">In order to properly use Deskflow for Android, you must enable these permissions.</string>
     <string name="permission_dialog_buttons_open_settings">Open Settings</string>
     <string name="permission_dialog_accessibility_service_message">Accessibility service permissions are required in order to create a virtual mouse pointer, respond to keyboard shortcuts (like opening the app switcher) and integrating editor controls. If it\'s not enabled, Deskflow can not function.</string>

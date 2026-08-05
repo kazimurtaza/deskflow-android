@@ -39,7 +39,6 @@ import android.provider.Settings
 import android.text.TextUtils
 import android.view.inputmethod.InputMethodInfo
 import android.view.inputmethod.InputMethodManager
-import androidx.core.net.toUri
 import arrow.core.raise.catch
 import kotlin.concurrent.atomics.AtomicBoolean
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
@@ -53,23 +52,6 @@ import org.tfv.deskflow.client.util.AbstractDisposable
 import org.tfv.deskflow.client.util.logging.KLoggingManager
 
 private val log = KLoggingManager.logger("ContextPermissions")
-
-/** Check if draw overlays is enabled for the app */
-fun Context.canDrawOverlays(): Boolean {
-  return Settings.canDrawOverlays(this)
-}
-
-fun Context.requestOverlayPermission() {
-  if (!canDrawOverlays()) {
-    val intent =
-      Intent(
-        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-        "package:${packageName}".toUri(),
-      )
-    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-    startActivity(intent)
-  }
-}
 
 fun Context.isAccessibilityServiceEnabled(
   serviceClass: Class<out AccessibilityService>
