@@ -19,6 +19,9 @@ on:
     tags:
       - 'v**'
 
+permissions:
+  contents: write  # softprops/action-gh-release needs this to create the Release
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -69,7 +72,7 @@ jobs:
 
       - name: Sign AAB
         id: sign_aab
-        uses: r0adkll/sign-android-release@v1
+        uses: r0adkll/sign-android-release@349ebdef58775b1e0d8099458af0816dc79b6407 # v1
         with:
           releaseDirectory: app/build/outputs/bundle-ready/release
           signingKeyBase64: ${{ secrets.SIGNING_KEY }}
@@ -80,7 +83,7 @@ jobs:
           BUILD_TOOLS_VERSION: "34.0.0"
 
       - name: Create/Update GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: ${{ steps.sign_aab.outputs.signedReleaseFile }}
           tag_name: ${{ env.tag_name }}
@@ -124,7 +127,7 @@ jobs:
 
       - name: Sign APK
         id: sign_apk
-        uses: r0adkll/sign-android-release@v1
+        uses: r0adkll/sign-android-release@349ebdef58775b1e0d8099458af0816dc79b6407 # v1
         with:
           releaseDirectory: app/build/outputs/apk-ready/release
           signingKeyBase64: ${{ secrets.SIGNING_KEY }}
@@ -135,7 +138,7 @@ jobs:
           BUILD_TOOLS_VERSION: "34.0.0"
 
       - name: Create/Update GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: ${{ steps.sign_apk.outputs.signedReleaseFile }}
           tag_name: ${{ env.tag_name }}

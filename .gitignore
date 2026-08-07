@@ -9,3 +9,8 @@ release
 *.aar
 
 local.properties
+
+# Signing keys and their base64 — never commit
+*.jks
+*.keystore
+*.jks.b64
