@@ -23,8 +23,6 @@
  */
 package org.tfv.deskflow.client.io.msgs
 
-import org.tfv.deskflow.client.io.readString
-import org.tfv.deskflow.client.io.writeString
 import java.io.DataInputStream
 import java.io.DataOutputStream
 
@@ -46,7 +44,7 @@ class ClipboardMessage(
 
 
     override fun toString(): String {
-        return "ClipboardMessage: TODO"
+        return "ClipboardMessage(id=$id, sequenceNumber=$sequenceNumber)"
     }
 
     companion object {

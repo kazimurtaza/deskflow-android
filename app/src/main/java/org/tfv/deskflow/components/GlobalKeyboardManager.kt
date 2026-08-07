@@ -26,6 +26,8 @@ package org.tfv.deskflow.components
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
+import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import androidx.annotation.RawRes
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -47,7 +49,6 @@ import org.tfv.deskflow.client.util.Keyboard
 import org.tfv.deskflow.client.util.Keyboard.findModifierKey
 import org.tfv.deskflow.client.util.SingletonThreadExecutor
 import org.tfv.deskflow.client.util.logging.KLoggingManager
-import org.tfv.deskflow.ext.systemActionsJson
 import org.tfv.deskflow.services.keyboard.actions.VirtualKeyboardAction
 import org.tfv.deskflow.types.EditorKeyboardAction
 import org.tfv.deskflow.types.GlobalKeyboardAction
@@ -146,11 +147,12 @@ open class GlobalKeyboardManager(
     }
 
     log.info { "Matched shortcut($shortcut) to action($action)" }
-    if (action.execute == null) {
-      log.debug { "Action($action) does not specify an execute function" }
-    } else {
-      log.debug { "Executing action($action), shortcut($shortcut) triggered" }
-      action.execute.invoke(action)
+    // Per-action IME/editable gate: actions flagged ignoreIME=false are suppressed
+    // while a soft IME window is open or an editable field is focused, so they do
+    // not compete with the user typing into a text field.
+    if (!action.ignoreIME && isImeBlockingInput()) {
+      log.debug { "Suppressing action($action): ignoreIME=false and IME/editable active" }
+      return
     }
 
     log.debug { "Emitting action($action)" }
@@ -162,19 +164,18 @@ open class GlobalKeyboardManager(
     executor.submit<Unit> { processInternal(event) }
   }
 
-  fun dumpSystemActions() {
-    val systemActionsJson = accessibilityService.systemActionsJson()
-
-    val jsonFile = "system_actions.json"
-    log.debug { "Writing system actions to file: $jsonFile" }
-    fileManager.writeJsonJob(jsonFile, systemActionsJson).invokeOnCompletion {
-      error ->
-      when (error) {
-        null -> log.debug { "Wrote $jsonFile successfully" }
-        else ->
-          log.error(error) { "Failed to write $jsonFile: ${error.message}" }
-      }
+  /**
+   * True when user input is currently going to a text field: a soft IME window is
+   * open or an editable node has input focus. Used to suppress shortcuts flagged
+   * `ignoreIME=false` while the user is typing.
+   */
+  private fun isImeBlockingInput(): Boolean {
+    val imeOpen = accessibilityService.windows.any {
+      it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD
     }
+    val editableFocused =
+      accessibilityService.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.isEditable == true
+    return imeOpen || editableFocused
   }
 
   override fun onDispose() {
@@ -237,7 +238,6 @@ open class GlobalKeyboardManager(
                 shortcutKeys = defaultShortcutKeys.toList(),
                 defaultShortcutKeys = defaultShortcutKeys,
                 ignoreIME = ignoreIME,
-                execute = {},
               )
                 as T
           }
@@ -251,7 +251,6 @@ open class GlobalKeyboardManager(
                 shortcutKeys = defaultShortcutKeys.toList(),
                 defaultShortcutKeys = defaultShortcutKeys,
                 specialKey = specialKey,
-                execute = {},
               )
                 as T
           }

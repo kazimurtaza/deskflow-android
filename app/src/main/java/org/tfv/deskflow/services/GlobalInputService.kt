@@ -579,9 +579,9 @@ class GlobalInputService : AccessibilityService() {
     // toggles once, not per key-repeat), no momentary modifiers held (so Ctrl/Alt/Shift/Meta
     // +Space still reaches the shortcut matcher below), no focused editable field and the
     // IME window closed (otherwise the IME types the space).
-    // TODO: the editable/IME-open gate is a local heuristic that duplicates the per-action
-    //   `ignoreIME` flag (parsed in GlobalKeyboardManager but never consulted in dispatch);
-    //   reconcile by wiring ignoreIME into this path.
+    // NOTE: ignoreIME is now consulted per-action in GlobalKeyboardManager.processInternal
+    //   for shortcuts. The gate below is a separate concern — whether Space toggles media
+    //   or is typed as a space — so it stays local to this branch.
     if (event.type == KeyboardEvent.Type.Down &&
         event.id.toInt().toChar() == ' ' &&
         !hasMomentaryModifiers(event) &&
