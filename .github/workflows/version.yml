@@ -17,7 +17,6 @@ jobs:
   version:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch'
-    environment: DeskflowAndroid
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
