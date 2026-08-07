@@ -82,6 +82,7 @@
     <string name="global_input_service_notification_channel_name">Deskflow</string>
     <string name="global_input_service_notification_channel_description">Notifications related to Deskflow input</string>
     <string name="global_input_service_notification_ime_not_setup">Deskflow Keyboard is not currently active.</string>
+    <string name="global_input_service_notification_media_access">Enable Notification access so Deskflow can play and pause media.</string>
     <string name="global_input_service_notification_action_open_keyboard_settings">Open Keyboard Settings</string>
     <string name="connection_service_notification_channel_name">Deskflow connection</string>
     <string name="connection_service_notification_channel_description">Keeps the Deskflow connection to your server alive in the background.</string>
