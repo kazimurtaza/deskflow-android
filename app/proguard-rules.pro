@@ -26,3 +26,9 @@
 -keep class mu.** { *; }
 -keep class org.slf4j.** { *; }
 -dontwarn org.slf4j.impl.**
+
+# --- App logging (reflective construction) ----------------------------------
+# KLoggingManager.forwardingLogger() reflectively constructs AndroidForwardingLogger(String).
+# Without this, R8 strips/renames that constructor and every Service fails at <clinit>
+# with NoSuchMethodException -- the app won't start.
+-keep class org.tfv.deskflow.logging.** { *; }
