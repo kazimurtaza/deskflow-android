@@ -50,6 +50,9 @@ dependencies {
     implementation(libs.kotlin.logging.jvm)
     testImplementation(libs.kotlin.test)
     testImplementation(libs.junit.jupiter)
+    // kotlin-logging routes to SLF4J; the client test JVM needs an SLF4J binding present
+    // so any class under test that initializes a logger (MessageParser, io exts, …) loads.
+    testImplementation(libs.slf4j.simple)
 }
 
 tasks.test {

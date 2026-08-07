@@ -87,11 +87,12 @@ class MessageParser() {
                     continue
                 }
                 msgList.add(message)
-            } catch (err: Exception) {
-                // One malformed frame must not crash the receive thread. Reset
-                // parser state and rethrow as a connection-level error so the
-                // socket run loop closes the connection cleanly rather than
-                // letting an IllegalArgumentException (or similar) escape.
+            } catch (err: Throwable) {
+                // One malformed frame (or an OutOfMemoryError from a bogus string
+                // length) must not crash the receive thread. Reset parser state
+                // and rethrow as a connection-level error so the socket run loop
+                // closes the connection cleanly instead of letting the throw
+                // escape and silently wedge the receiver.
                 log.error(err) {
                     "Failed to parse frame of size $pendingMessageSize; " +
                         "resetting parser and closing connection"
@@ -131,16 +132,31 @@ class MessageParser() {
                 message.readData(DataInputStream(ByteArrayInputStream(data, dataOffset, dataSize)), dataSize)
 
                 return message
-            } catch (err: Exception) {
+            } catch (err: Throwable) {
                 log.error(err) { "Error creating message instance  (type=${template.code}): ${err.message}" }
                 throw err
             }
         } catch (err: Exception) {
             log.error(err) { "Unable to parse message: ${err.message}" }
             return null
+        } catch (err: Throwable) {
+            // Never swallow an Error (e.g. OutOfMemoryError) into null — let it
+            // propagate to parseBuffer's reset-and-rethrow path.
+            log.error(err) { "Fatal error parsing message: ${err.message}" }
+            throw err
         }
     }
 
+
+    /**
+     * Reset parser frame state. Call on disconnect/reconnect so a partially-read
+     * frame size from a previous connection can't mis-frame the next stream. (The
+     * parsed buffer is owned by the socket and is recreated per connection, so
+     * only [pendingMessageSize] needs clearing here.)
+     */
+    fun reset() {
+        pendingMessageSize = 0
+    }
 
     companion object {
 

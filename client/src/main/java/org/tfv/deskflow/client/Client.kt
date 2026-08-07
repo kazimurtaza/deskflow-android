@@ -297,6 +297,9 @@ class Client(
 
     socket = disposeOf(socket)
     messageHandler = disposeOf(messageHandler)
+    // Drop any partially-read frame so the next connection's stream re-aligns
+    // (otherwise a stale pendingMessageSize mis-frames the new server's hello).
+    messageParser.reset()
   }
 
   /** Wait for socket to close if connected */
