@@ -28,8 +28,6 @@
     <string name="app_name">Deskflow</string>
     <string name="title_activity_settings">Deskflow Settings</string>
 
-    <string name="logo_content_desc">Logo</string>
-
     <string name="settings_screen_screen_name_placeholder">Screen Name</string>
     <string name="settings_screen_screen_address_placeholder">Hostname or IP Address</string>
     <string name="settings_screen_screen_port_placeholder">24800</string>
@@ -58,18 +56,12 @@
     <string name="log_widget_toolbar_scroll_to_bottom">Scroll to bottom</string>
     <string name="log_widget_title">Logs</string>
     <string name="log_widget_toolbar_filter_logs_label">Filter logs</string>
-    <string name="connection_status_widget_toolbar_stop">Stop Deskflow Client</string>
     <string name="connection_status_widget_title">Connection</string>
     <string name="shortcuts_list_widget_toolbar_edit">Edit</string>
     <string name="shortcuts_list_widget_title">Shortcuts</string>
     <string name="app_toolbar_logo_desc">Logo</string>
-    <string name="app_toolbar_button_settings">Settings</string>
     <string name="app_toolbar_button_start">START</string>
     <string name="app_toolbar_button_stop">STOP</string>
-    <string name="connection_status_widget_enabled_label">Client enabled</string>
-    <string name="connection_status_widget_enabled_value_true">RUNNING</string>
-    <string name="connection_status_widget_enabled_value_false">STOPPED</string>
-    <string name="connection_status_widget_connected_label">Connected</string>
     <string name="shortcuts_list_widget_global_actions">Global Actions</string>
     <string name="shortcuts_list_widget_editor_actions">Editor Actions</string>
     <string name="log_widget_no_logs">No current log records</string>
@@ -84,7 +76,6 @@
     <string name="global_input_service_notification_channel_description">Notifications related to Deskflow input</string>
     <string name="global_input_service_notification_ime_not_setup">Deskflow Keyboard is not currently active.</string>
     <string name="global_input_service_notification_media_access">Enable Notification access so Deskflow can play and pause media.</string>
-    <string name="global_input_service_notification_action_open_keyboard_settings">Open Keyboard Settings</string>
     <string name="connection_service_notification_channel_name">Deskflow connection</string>
     <string name="connection_service_notification_channel_description">Keeps the Deskflow connection to your server alive in the background.</string>
     <string name="connection_service_notification_text">Connected to your Deskflow server</string>

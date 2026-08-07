@@ -46,8 +46,6 @@ greatly expanded test suite. See the commit history for the full set.
   * [Table of Contents](#table-of-contents)
   * [Features & Limitations](#features--limitations)
   * [Installation](#installation)
-    * [F-Droid](#f-droid)
-    * [Google Play](#google-play)
     * [Github](#github)
     * [Build manually](#build-manually)
   * [Config](#config-)
@@ -84,16 +82,6 @@ greatly expanded test suite. See the commit history for the full set.
 - **Low-latency input** — TCP_NODELAY is set on the link to the Deskflow server, so mouse/keyboard events aren't delayed by Nagle's algorithm.
 
 ## Installation
-
-### F-Droid
-
-[<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png"
-     alt="Get it on F-Droid"
-     height="80">](https://f-droid.org/packages/org.tfv.deskflow/)
-
-### Google Play
-
-Coming soon
 
 ### Github
 
@@ -136,6 +124,11 @@ Settings screen so you can register it on the server: append
 ![Config Screenshot](docs/assets/screenshots/screenshot_tls_config.png)
 
 ### Deskflow Android (this app)
+
+> **The screenshots below are from an older UI** and are kept for orientation only. The flow
+> is unchanged, but the current Settings screen has evolved — **TLS is on by default**, the
+> **pinned server fingerprint** and a **pointer-speed slider** are shown, and the layout has
+> been refreshed. They'll be replaced when new captures are available.
 
 On first launch, you'll see a gear in the top right corner of the app,
 press the gear (highlighted in the screenshot below) to open the configuration screen.

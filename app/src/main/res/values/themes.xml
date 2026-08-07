@@ -28,19 +28,4 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
-
-    <style name="Theme.DeskflowKM.NoActionBar" parent="Theme.DeskflowKM">
-
-        <item name="windowActionBar">false</item>
-        <item name="windowNoTitle">true</item>
-    </style>
-
-    <style name="Theme.DeskflowKM.NoWindowTitle" parent="Theme.DeskflowKM">
-        <item name="windowActionBar">true</item>
-        <item name="windowNoTitle">true</item>
-    </style>
-
-    <style name="Theme.DeskflowKM.AppBarOverlay" parent="ThemeOverlay.AppCompat.Dark.ActionBar" />
-
-    <style name="Theme.DeskflowKM.PopupOverlay" parent="ThemeOverlay.AppCompat.Light" />
 </resources>
