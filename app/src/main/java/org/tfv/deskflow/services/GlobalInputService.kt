@@ -1184,6 +1184,15 @@ class GlobalInputService : AccessibilityService() {
 
           log.debug { "onPrimaryClipChanged(clip=$clip)" }
           if (clip == null) return@catch
+          // Don't relay sensitive content (passwords from a password manager / autofill),
+          // and don't echo back clips we just injected from the server inbound path (which
+          // marks them EXTRA_IS_SENSITIVE). The flag lives on the clip description extras.
+          val isSensitive =
+            clip.description.extras?.getBoolean(ClipDescription.EXTRA_IS_SENSITIVE) == true
+          if (isSensitive) {
+            log.debug { "Skipping clipboard sync (marked sensitive)" }
+            return@catch
+          }
           val clipDesc = clip.description
           val itemIdx =
             0.rangeUntil(clipDesc.mimeTypeCount).find { idx ->

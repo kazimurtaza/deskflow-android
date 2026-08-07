@@ -44,7 +44,7 @@ fun newDefaultAppPrefs(): AppPrefs {
             server = server.copy {
                 address = "localhost"
                 port = 24800
-                useTls = false
+                useTls = true
             }
         }
         actions = actions.copy {

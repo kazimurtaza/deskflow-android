@@ -35,6 +35,7 @@
     <string name="settings_screen_screen_port_placeholder">24800</string>
     <string name="app_prefs_screen_server_use_tls">Use TLS</string>
     <string name="settings_screen_client_cert_fingerprint">This device\'s client certificate fingerprint (register it on a PeerAuth / mutual-TLS server):\n%s</string>
+    <string name="settings_screen_server_fingerprint">Pinned server fingerprint (TLS trust-on-first-use) for %1$s — verify it matches the server:\n%2$s</string>
     <string name="settings_screen_pointer_speed">Pointer speed</string>
     <string name="bottom_bar_connected">Connected\n%s</string>
     <string name="bottom_bar_disconnected">Disconnected\n%s</string>

@@ -30,6 +30,9 @@ import java.security.cert.X509Certificate
 import javax.net.ssl.KeyManager
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
+import org.tfv.deskflow.client.util.logging.KLoggingManager
+
+private val log = KLoggingManager.logger("FingerprintTrustManager")
 
 /**
  * Persistent store of pinned server fingerprints, keyed by host. Implementations
@@ -112,6 +115,10 @@ class FingerprintTrustManager(
   fun commitPin() {
     val fp = pendingFingerprint ?: return
     pendingFingerprint = null
+    log.warn {
+      "TOFU: pinning first-seen server fingerprint for $host (sha256=${fp.take(16)}…). " +
+        "If this is unexpected, verify it against the server's displayed fingerprint in Settings."
+    }
     store.pin(host, fp)
   }
 
