@@ -179,11 +179,16 @@ class GlobalInputService : AccessibilityService() {
       override fun onCompleted(gestureDescription: GestureDescription) {
         super.onCompleted(gestureDescription)
         globalInputPending = false
+        // A wheel event may have arrived while this gesture was in flight
+        // (flushWheelScroll bails while globalInputPending is true); flush any
+        // accumulated delta now that the dispatch slot is free again.
+        flushWheelScroll()
       }
 
       override fun onCancelled(gestureDescription: GestureDescription) {
         super.onCancelled(gestureDescription)
         globalInputPending = false
+        flushWheelScroll()
       }
     }
 
@@ -667,6 +672,12 @@ class GlobalInputService : AccessibilityService() {
     displayListener?.let { displayManager.unregisterDisplayListener(it) }
     displayListener = null
     resetDragState()
+    // Mirror the onServiceConnected registrations so a recreate inside a surviving
+    // process doesn't accumulate listeners / leak the keyboard manager's worker thread.
+    clipboard.removePrimaryClipChangedListener(onClipboardChanged)
+    catch({ keyboardManager.dispose() }) { err: Throwable ->
+      log.error(err) { "Error disposing keyboard manager" }
+    }
     // Only setupMousePointer()/showMousePointer() ever addView()s the pointer;
     // removing it unconditionally throws IllegalArgumentException (and crashes
     // the service) when never added.
@@ -737,7 +748,7 @@ class GlobalInputService : AccessibilityService() {
         fingerCount = fingers,
       )
 
-    dispatchGesture(builder.build(), object : GestureResultCallback() {
+    safeDispatch(builder.build(), object : GestureResultCallback() {
       override fun onCompleted(gestureDescription: GestureDescription) {
         dragGestureInProgress = false
         // willContinue completes immediately; the drag state stays armed, waiting
@@ -801,7 +812,7 @@ class GlobalInputService : AccessibilityService() {
     dragState.lastDispatchedX = toX
     dragState.lastDispatchedY = toY
 
-    dispatchGesture(builder.build(), object : GestureResultCallback() {
+    safeDispatch(builder.build(), object : GestureResultCallback() {
       override fun onCompleted(gestureDescription: GestureDescription) {
         dragGestureInProgress = false
         // If the cursor moved while this segment was in flight, chain another.
@@ -853,7 +864,7 @@ class GlobalInputService : AccessibilityService() {
       builder.addStroke(last.continueStroke(path, 0, 10, false))
     }
 
-    dispatchGesture(builder.build(), object : GestureResultCallback() {
+    safeDispatch(builder.build(), object : GestureResultCallback() {
       override fun onCompleted(gestureDescription: GestureDescription) {
         resetDragState()
       }
@@ -863,6 +874,28 @@ class GlobalInputService : AccessibilityService() {
         resetDragState()
       }
     }, globalInputHandler)
+  }
+
+  /**
+   * Dispatch an accessibility gesture, guaranteeing that any drag/global-input state
+   * armed before the dispatch is released if [dispatchGesture] throws. Without this, a
+   * throw leaves [dragGestureInProgress] / [globalInputPending] / [activeDragState]
+   * armed with no callback ever firing to clear them, wedging all subsequent mouse
+   * input. Runs on the main looper; safe to call from gesture callbacks (which are
+   * NOT covered by the outer onReceive catch).
+   */
+  private fun safeDispatch(
+    gesture: GestureDescription,
+    callback: GestureResultCallback,
+    handler: Handler = globalInputHandler,
+  ) {
+    try {
+      dispatchGesture(gesture, callback, handler)
+    } catch (err: Exception) {
+      log.error(err) { "dispatchGesture threw; resetting input state" }
+      globalInputPending = false
+      resetDragState()
+    }
   }
 
   /** Clear ALL drag state; called from every drag callback's onCancelled and teardown. */
@@ -890,7 +923,7 @@ class GlobalInputService : AccessibilityService() {
     val gesture =
       GestureDescription.Builder().addStroke(stroke1).addStroke(stroke2).build()
     log.debug { "Spread (zoom in) at [$px,$py]" }
-    dispatchGesture(gesture, object : GestureResultCallback() {
+    safeDispatch(gesture, object : GestureResultCallback() {
       override fun onCompleted(gestureDescription: GestureDescription) {
         // Release both fingers from their spread positions.
         val p1 = Path().apply { moveTo(px + 75, py) }
@@ -900,7 +933,7 @@ class GlobalInputService : AccessibilityService() {
             .addStroke(stroke1.continueStroke(p1, 50, 50, false))
             .addStroke(stroke2.continueStroke(p2, 50, 50, false))
             .build()
-        dispatchGesture(release, gestureResultCallback, globalInputHandler)
+        safeDispatch(release, gestureResultCallback, globalInputHandler)
       }
 
       override fun onCancelled(gestureDescription: GestureDescription) {
@@ -920,7 +953,7 @@ class GlobalInputService : AccessibilityService() {
     val gesture =
       GestureDescription.Builder().addStroke(stroke1).addStroke(stroke2).build()
     log.debug { "Pinch (zoom out) at [$px,$py]" }
-    dispatchGesture(gesture, object : GestureResultCallback() {
+    safeDispatch(gesture, object : GestureResultCallback() {
       override fun onCompleted(gestureDescription: GestureDescription) {
         val p1 = Path().apply { moveTo(px + 25, py) }
         val p2 = Path().apply { moveTo(px - 25, py) }
@@ -929,7 +962,7 @@ class GlobalInputService : AccessibilityService() {
             .addStroke(stroke1.continueStroke(p1, 50, 50, false))
             .addStroke(stroke2.continueStroke(p2, 50, 50, false))
             .build()
-        dispatchGesture(release, gestureResultCallback, globalInputHandler)
+        safeDispatch(release, gestureResultCallback, globalInputHandler)
       }
 
       override fun onCancelled(gestureDescription: GestureDescription) {
@@ -1097,10 +1130,17 @@ class GlobalInputService : AccessibilityService() {
 
       MouseEvent.Type.Up -> {
         log.debug { "Up [$event]" }
-        val buttonState = mouseButtonDown
-        mouseButtonDown = null
         // Side buttons fired their global action on Down; nothing to do here.
         if (event.id == MouseButton.X1_BACK || event.id == MouseButton.X2_FORWARD) return
+        val armed = mouseButtonDown
+        // Chording: only the button that armed the drag may end it. A release of a
+        // different (non-side) button is ignored so an in-progress drag survives
+        // (e.g. hold Left, press+release Right must not lift the Left drag).
+        if (armed != null && event.id != armed.buttonId) {
+          log.debug { "Up[${event.id}] ignored; drag armed for button ${armed.buttonId}" }
+          return
+        }
+        mouseButtonDown = null
         val currentX = mousePointerLayout.x.toFloat()
         val currentY = mousePointerLayout.y.toFloat()
         val dragState = activeDragState
@@ -1360,7 +1400,7 @@ class GlobalInputService : AccessibilityService() {
 
     globalInputPending = true
     log.debug { "scrollBy dx=$dx dy=$dy duration=$duration endpoints=$endpoints" }
-    dispatchGesture(builder.build(), gestureResultCallback, globalInputHandler)
+    safeDispatch(builder.build(), gestureResultCallback, globalInputHandler)
   }
 
   /**

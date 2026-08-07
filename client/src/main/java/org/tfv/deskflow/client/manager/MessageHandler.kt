@@ -50,7 +50,7 @@ class MessageHandler(
   var isScreenActive: Boolean = false
     private set
 
-  private var keepAliveServerTimestamp: Long = 0L
+  @Volatile private var keepAliveServerTimestamp: Long = 0L
   private var keepAliveFuture: ScheduledFuture<Void>? = null
 
   val screenName: String
@@ -119,7 +119,15 @@ class MessageHandler(
         log.warn { "Message executor is shutdown, ignoring messages" }
         return
       }
-      messageExecutor.submit { messages.forEach { message -> handle(message) } }
+      messageExecutor.submit {
+        messages.forEach { message ->
+          try {
+            handle(message)
+          } catch (err: Exception) {
+            log.error(err) { "Error handling message ${message.type}: ${err.message}" }
+          }
+        }
+      }
     }
   }
 
