@@ -5,6 +5,26 @@ A **near** fully functional [Deskflow (deskflow.org)](https://deskflow.org) clie
 > NOTE: Everything here in, assumes you already use Deskflow on your desktop &
 > know how to configure a client/screen
 
+## Credits & Fork Status
+
+This project was originally created by **[Jonathan Glanz](https://github.com/jglanz)** as
+[`deskflow-android`](https://github.com/jglanz/deskflow-android) (© 2025 Jonathan Glanz,
+released under the MIT License). **Many thanks to Jonathan** for the foundation this fork
+builds on — the Deskflow/Barrier wire-protocol client, the AccessibilityService + custom IME
+integration, configurable pointer input, and the SHA-256 fingerprint TLS/TOFU model.
+
+The upstream repository became **inactive**, so this is now an **actively maintained fork**
+that continues development and has moved well past upstream:
+[github.com/kazimurtaza/deskflow-android](https://github.com/kazimurtaza/deskflow-android).
+Jonathan's MIT copyright notice is preserved in full — see [LICENSE.md](LICENSE.md).
+
+**Highlights added in this fork:** TLS **on by default**; **Space** toggles the active media
+session's play/pause (YouTube, Spotify, …); corrected UTF-8 protocol string framing and
+parser-reset-on-reconnect; hardened input reliability (no more mouse-input wedge, drag
+chording, wheel re-flush); security hardening (sensitive-clipboard protection, visible TOFU
+server fingerprint, SHA-pinned & R8-minified release builds); lifecycle/leak fixes; and a
+greatly expanded test suite. See the commit history for the full set.
+
 ## Table of Contents
 
 <!-- TOC -->
@@ -34,6 +54,7 @@ A **near** fully functional [Deskflow (deskflow.org)](https://deskflow.org) clie
 - Keyboard
   - Shortcuts & hotkeys: app switching (`Command+Tab` / `Alt+Tab`), arrow-key navigation, `Escape` for Back
   - **Volume keys** (up / down / mute) control the device volume
+  - **Space** toggles play/pause of the active media session (YouTube, Spotify, …) when no text field is focused
 - **Configurable pointer speed** slider (in Settings)
 - Clipboard integration
   - Text (of any kind) is supported
@@ -42,7 +63,7 @@ A **near** fully functional [Deskflow (deskflow.org)](https://deskflow.org) clie
   - Pull down on the status bar
   - Pull up for all apps, etc
 - **Mouse-wheel scrolling works. Gesture or click-and-drag scrolling is limited, though arrow keys work in many apps.**
-- **TLS is supported with SHA-256 fingerprint trust-on-first-use, and client certificates (PeerAuth / mutual TLS) are supported.** See [TLS/SSL Security](#tlsssl-security).
+- **TLS is on by default**, with SHA-256 fingerprint trust-on-first-use and client certificates (PeerAuth / mutual TLS) supported. See [TLS/SSL Security](#tlsssl-security).
 
 ## Installation
 
@@ -58,13 +79,13 @@ Coming soon
 
 ### Github
 
-Download the latest APK from the [Releases Section](https://github.com/jglanz/deskflow-android/releases/latest).
+Download the latest APK from the [Releases Section](https://github.com/kazimurtaza/deskflow-android/releases/latest).
 
 ### Build manually
 
 1. Clone the repository:  
    ```bash
-   git clone git@github.com:jglanz/deskflow-android.git
+   git clone git@github.com:kazimurtaza/deskflow-android.git
    ```
 2. Open the project in Android Studio.
 3. Build and run the app on your Android device or emulator.
@@ -110,7 +131,7 @@ The only configuration information required is:
 
 - `Screen Name` the name you configured in the Deskflow Server.
 - `Host` & `Port` of your Deskflow Server.
-- `Use TLS` if your Deskflow Server is configured for TLS.
+- `Use TLS` (on by default) — toggle it off only if your Deskflow Server runs without TLS.
 - `Pointer speed` adjusts how far the on-screen pointer moves relative to the mouse (1.0x tracks the server exactly; lower is slower and more precise, higher is faster).
 
 Press `Save` to save your configuration and return to the home screen.
