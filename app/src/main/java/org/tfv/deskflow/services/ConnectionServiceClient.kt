@@ -216,13 +216,19 @@ class ConnectionServiceClient(
 
   fun unbind() {
     synchronized(this) {
-
-      val connectionService = connectionService
-      if (connectionService != null) {
-        connectionService.unregisterCallback(connectionServiceCallback)
-        ctx.unbindService(serviceConnection)
+      // It is valid to call unbindService() as soon as bindService() returned true,
+      // even before onServiceConnected fires — it cancels the pending bind. Gating on
+      // connectionService != null (assigned in onServiceConnected) would leak a service
+      // that is still mid-connect (e.g. onStop landing before onServiceConnected).
+      connectionService?.unregisterCallback(connectionServiceCallback)
+      if (isBoundStorage.load()) {
+        try {
+          ctx.unbindService(serviceConnection)
+        } catch (err: Throwable) {
+          log.error(err) { "unbindService failed" }
+        }
       }
-      this.connectionService = null
+      connectionService = null
       isBoundStorage.store(false)
     }
   }

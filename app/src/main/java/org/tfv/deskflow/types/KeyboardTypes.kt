@@ -196,7 +196,6 @@ data class GlobalKeyboardAction(
   override val shortcutKeys: List<ShortcutKey>,
   val actionId: Int,
   override val label: String,
-  val execute: GlobalActionExecutor? = null,
   override val defaultShortcutKeys: List<ShortcutKey> = emptyList(),
   val ignoreIME: Boolean = false
 ) : KeyboardAction<String>
@@ -208,7 +207,6 @@ data class EditorKeyboardAction(
   val actionId: Int,
   override val label: String,
   val specialKey: Keyboard.SpecialKey? = null,
-  val execute: GlobalActionExecutor? = null,
   override val defaultShortcutKeys: List<ShortcutKey> = emptyList()
 ) : KeyboardAction<String>
 
@@ -257,5 +255,3 @@ data class KeyboardManagerState<ID, T: KeyboardAction<ID>>(
 }
 
 typealias GlobalKeyboardManagerState = KeyboardManagerState<String, GlobalKeyboardAction>
-
-typealias GlobalActionExecutor = (GlobalKeyboardAction) -> Unit

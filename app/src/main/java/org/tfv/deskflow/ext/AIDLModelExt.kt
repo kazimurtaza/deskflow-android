@@ -66,7 +66,7 @@ fun ConnectionStateDefaults(context: Context): ConnectionState {
             server = ServerState().apply {
                 address = SERVER_DEFAULT_ADDRESS
                 port = SERVER_DEFAULT_PORT
-                useTls = false
+                useTls = true
             }
         }
     }

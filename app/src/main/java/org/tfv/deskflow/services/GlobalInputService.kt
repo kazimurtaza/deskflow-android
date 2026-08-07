@@ -97,6 +97,12 @@ class GlobalInputService : AccessibilityService() {
    */
   private lateinit var keyboardManager: GlobalKeyboardManager
 
+  /** Bridges Space→play/pause to the active media session (YouTube, Spotify, …). */
+  private val mediaSessionController by lazy { MediaSessionController(this) }
+
+  /** Guards the one-time "enable notification access" nudge for media control. */
+  @Volatile private var mediaAccessNudgeShown = false
+
   private val clipboard by lazy {
     getSystemService(ClipboardManager::class.java)
   }
@@ -173,11 +179,16 @@ class GlobalInputService : AccessibilityService() {
       override fun onCompleted(gestureDescription: GestureDescription) {
         super.onCompleted(gestureDescription)
         globalInputPending = false
+        // A wheel event may have arrived while this gesture was in flight
+        // (flushWheelScroll bails while globalInputPending is true); flush any
+        // accumulated delta now that the dispatch slot is free again.
+        flushWheelScroll()
       }
 
       override fun onCancelled(gestureDescription: GestureDescription) {
         super.onCancelled(gestureDescription)
         globalInputPending = false
+        flushWheelScroll()
       }
     }
 
@@ -270,8 +281,9 @@ class GlobalInputService : AccessibilityService() {
 
   private fun sendStatusNotification(
     text: String,
+    notificationId: Int = NOTIF_IME_NOT_SETUP_ID,
     customizer: (NotificationCompat.Builder.() -> Unit)? = null,
-  ) {
+  ): Boolean {
     if (
       ContextCompat.checkSelfPermission(
         this,
@@ -281,7 +293,7 @@ class GlobalInputService : AccessibilityService() {
       log.warn {
         "POST_NOTIFICATIONS permission not granted, cannot send notification."
       }
-      return
+      return false
     }
     val notificationBuilder =
       NotificationCompat.Builder(this, CHANNEL_ID)
@@ -300,7 +312,8 @@ class GlobalInputService : AccessibilityService() {
     val notification = notificationBuilder.build()
     // TODO: Add action to open keyboard settings
     NotificationManagerCompat.from(this)
-      .notify(NOTIF_IME_NOT_SETUP_ID, notification)
+      .notify(notificationId, notification)
+    return true
   }
 
   private fun isDeskflowKeyboardActive(
@@ -334,20 +347,13 @@ class GlobalInputService : AccessibilityService() {
         }
         !isDeskflowImeEnabled -> {
           log.warn { "IME is not enabled, showing notification." }
-          sendStatusNotification(
+          nudgeToSettings(
+            NOTIF_IME_NOT_SETUP_ID,
             resources.getString(
               R.string.global_input_service_notification_ime_not_setup
-            )
-          ) {
-            setContentIntent(
-              PendingIntent.getActivity(
-                this@GlobalInputService,
-                0,
-                Intent(android.provider.Settings.ACTION_INPUT_METHOD_SETTINGS),
-                PendingIntent.FLAG_IMMUTABLE,
-              )
-            )
-          }
+            ),
+            android.provider.Settings.ACTION_INPUT_METHOD_SETTINGS,
+          )
         }
         with(activePackageName) {
           this == null || pickerShownForPackage == this
@@ -567,10 +573,32 @@ class GlobalInputService : AccessibilityService() {
       keyboardManager.process(event)
       return
     }
+    // Space toggles play/pause of the active media session (YouTube, Spotify, …). There is
+    // no system-wide key injection here, so we talk to the MediaSession directly via
+    // MediaSessionController. Constraints, ordered cheap-first: Down only (a held Space
+    // toggles once, not per key-repeat), no momentary modifiers held (so Ctrl/Alt/Shift/Meta
+    // +Space still reaches the shortcut matcher below), no focused editable field and the
+    // IME window closed (otherwise the IME types the space).
+    // NOTE: ignoreIME is now consulted per-action in GlobalKeyboardManager.processInternal
+    //   for shortcuts. The gate below is a separate concern — whether Space toggles media
+    //   or is typed as a space — so it stays local to this branch.
+    if (event.type == KeyboardEvent.Type.Down &&
+        event.id.toInt().toChar() == ' ' &&
+        !hasMomentaryModifiers(event) &&
+        !isKeyboardOpened &&
+        findFocus(FOCUS_INPUT)?.isEditable != true &&
+        toggleMediaOrNudge()
+    ) return
     // Non-modifier keys: handle Down and Repeat (key-repeat); ignore Up, which
     // would otherwise duplicate the Down.
     if (event.type == KeyboardEvent.Type.Up) return
     keyboardManager.process(event)
+  }
+
+  /** True if any momentary (non-lock) modifier is held — i.e. this is not a "bare" key press. */
+  private fun hasMomentaryModifiers(event: KeyboardEvent): Boolean {
+    val m = event.getModifiers()
+    return m.isControl || m.isAlt || m.isMeta || m.isSuper || m.isShift || m.isAltGr
   }
 
   /** @return true if [event] was a volume/media key that was handled here. */
@@ -588,6 +616,53 @@ class GlobalInputService : AccessibilityService() {
   }
 
   /**
+   * Toggle the active media session's play/pause. If Deskflow lacks Notification access
+   * (required to read media sessions), nudge the user once with a deep link instead.
+   *
+   * @return true if a media transport command was dispatched (caller should consume the key).
+   */
+  private fun toggleMediaOrNudge(): Boolean {
+    if (!mediaSessionController.isNotificationAccessEnabled()) {
+      nudgeNotificationAccessOnce()
+      return false
+    }
+    return mediaSessionController.togglePlayPause()
+  }
+
+  /**
+   * Post a status notification whose content intent opens [settingsAction]. Returns whether
+   * the notification was actually posted (false if POST_NOTIFICATIONS is denied).
+   */
+  private fun nudgeToSettings(
+    notificationId: Int,
+    message: String,
+    settingsAction: String,
+  ): Boolean =
+    sendStatusNotification(message, notificationId) {
+      setContentIntent(
+        PendingIntent.getActivity(
+          this@GlobalInputService,
+          0,
+          Intent(settingsAction),
+          PendingIntent.FLAG_IMMUTABLE,
+        )
+      )
+    }
+
+  /** Show a single notification pointing at Notification access settings (for media control). */
+  private fun nudgeNotificationAccessOnce() {
+    if (mediaAccessNudgeShown) return
+    // Latch only on a successful post: if POST_NOTIFICATIONS is denied the nudge can't show,
+    // so we must not latch (else it stays suppressed forever, even after the user grants it).
+    if (nudgeToSettings(
+        NOTIF_MEDIA_ACCESS_ID,
+        resources.getString(R.string.global_input_service_notification_media_access),
+        android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS,
+      )
+    ) mediaAccessNudgeShown = true
+  }
+
+  /**
    * Called when the service is destroyed. This is where we clean up resources
    * and remove the mouse pointer view.
    */
@@ -597,6 +672,12 @@ class GlobalInputService : AccessibilityService() {
     displayListener?.let { displayManager.unregisterDisplayListener(it) }
     displayListener = null
     resetDragState()
+    // Mirror the onServiceConnected registrations so a recreate inside a surviving
+    // process doesn't accumulate listeners / leak the keyboard manager's worker thread.
+    clipboard.removePrimaryClipChangedListener(onClipboardChanged)
+    catch({ keyboardManager.dispose() }) { err: Throwable ->
+      log.error(err) { "Error disposing keyboard manager" }
+    }
     // Only setupMousePointer()/showMousePointer() ever addView()s the pointer;
     // removing it unconditionally throws IllegalArgumentException (and crashes
     // the service) when never added.
@@ -667,7 +748,7 @@ class GlobalInputService : AccessibilityService() {
         fingerCount = fingers,
       )
 
-    dispatchGesture(builder.build(), object : GestureResultCallback() {
+    safeDispatch(builder.build(), object : GestureResultCallback() {
       override fun onCompleted(gestureDescription: GestureDescription) {
         dragGestureInProgress = false
         // willContinue completes immediately; the drag state stays armed, waiting
@@ -731,7 +812,7 @@ class GlobalInputService : AccessibilityService() {
     dragState.lastDispatchedX = toX
     dragState.lastDispatchedY = toY
 
-    dispatchGesture(builder.build(), object : GestureResultCallback() {
+    safeDispatch(builder.build(), object : GestureResultCallback() {
       override fun onCompleted(gestureDescription: GestureDescription) {
         dragGestureInProgress = false
         // If the cursor moved while this segment was in flight, chain another.
@@ -783,7 +864,7 @@ class GlobalInputService : AccessibilityService() {
       builder.addStroke(last.continueStroke(path, 0, 10, false))
     }
 
-    dispatchGesture(builder.build(), object : GestureResultCallback() {
+    safeDispatch(builder.build(), object : GestureResultCallback() {
       override fun onCompleted(gestureDescription: GestureDescription) {
         resetDragState()
       }
@@ -793,6 +874,28 @@ class GlobalInputService : AccessibilityService() {
         resetDragState()
       }
     }, globalInputHandler)
+  }
+
+  /**
+   * Dispatch an accessibility gesture, guaranteeing that any drag/global-input state
+   * armed before the dispatch is released if [dispatchGesture] throws. Without this, a
+   * throw leaves [dragGestureInProgress] / [globalInputPending] / [activeDragState]
+   * armed with no callback ever firing to clear them, wedging all subsequent mouse
+   * input. Runs on the main looper; safe to call from gesture callbacks (which are
+   * NOT covered by the outer onReceive catch).
+   */
+  private fun safeDispatch(
+    gesture: GestureDescription,
+    callback: GestureResultCallback,
+    handler: Handler = globalInputHandler,
+  ) {
+    try {
+      dispatchGesture(gesture, callback, handler)
+    } catch (err: Exception) {
+      log.error(err) { "dispatchGesture threw; resetting input state" }
+      globalInputPending = false
+      resetDragState()
+    }
   }
 
   /** Clear ALL drag state; called from every drag callback's onCancelled and teardown. */
@@ -820,7 +923,7 @@ class GlobalInputService : AccessibilityService() {
     val gesture =
       GestureDescription.Builder().addStroke(stroke1).addStroke(stroke2).build()
     log.debug { "Spread (zoom in) at [$px,$py]" }
-    dispatchGesture(gesture, object : GestureResultCallback() {
+    safeDispatch(gesture, object : GestureResultCallback() {
       override fun onCompleted(gestureDescription: GestureDescription) {
         // Release both fingers from their spread positions.
         val p1 = Path().apply { moveTo(px + 75, py) }
@@ -830,7 +933,7 @@ class GlobalInputService : AccessibilityService() {
             .addStroke(stroke1.continueStroke(p1, 50, 50, false))
             .addStroke(stroke2.continueStroke(p2, 50, 50, false))
             .build()
-        dispatchGesture(release, gestureResultCallback, globalInputHandler)
+        safeDispatch(release, gestureResultCallback, globalInputHandler)
       }
 
       override fun onCancelled(gestureDescription: GestureDescription) {
@@ -850,7 +953,7 @@ class GlobalInputService : AccessibilityService() {
     val gesture =
       GestureDescription.Builder().addStroke(stroke1).addStroke(stroke2).build()
     log.debug { "Pinch (zoom out) at [$px,$py]" }
-    dispatchGesture(gesture, object : GestureResultCallback() {
+    safeDispatch(gesture, object : GestureResultCallback() {
       override fun onCompleted(gestureDescription: GestureDescription) {
         val p1 = Path().apply { moveTo(px + 25, py) }
         val p2 = Path().apply { moveTo(px - 25, py) }
@@ -859,7 +962,7 @@ class GlobalInputService : AccessibilityService() {
             .addStroke(stroke1.continueStroke(p1, 50, 50, false))
             .addStroke(stroke2.continueStroke(p2, 50, 50, false))
             .build()
-        dispatchGesture(release, gestureResultCallback, globalInputHandler)
+        safeDispatch(release, gestureResultCallback, globalInputHandler)
       }
 
       override fun onCancelled(gestureDescription: GestureDescription) {
@@ -1027,10 +1130,17 @@ class GlobalInputService : AccessibilityService() {
 
       MouseEvent.Type.Up -> {
         log.debug { "Up [$event]" }
-        val buttonState = mouseButtonDown
-        mouseButtonDown = null
         // Side buttons fired their global action on Down; nothing to do here.
         if (event.id == MouseButton.X1_BACK || event.id == MouseButton.X2_FORWARD) return
+        val armed = mouseButtonDown
+        // Chording: only the button that armed the drag may end it. A release of a
+        // different (non-side) button is ignored so an in-progress drag survives
+        // (e.g. hold Left, press+release Right must not lift the Left drag).
+        if (armed != null && event.id != armed.buttonId) {
+          log.debug { "Up[${event.id}] ignored; drag armed for button ${armed.buttonId}" }
+          return
+        }
+        mouseButtonDown = null
         val currentX = mousePointerLayout.x.toFloat()
         val currentY = mousePointerLayout.y.toFloat()
         val dragState = activeDragState
@@ -1114,6 +1224,15 @@ class GlobalInputService : AccessibilityService() {
 
           log.debug { "onPrimaryClipChanged(clip=$clip)" }
           if (clip == null) return@catch
+          // Don't relay sensitive content (passwords from a password manager / autofill),
+          // and don't echo back clips we just injected from the server inbound path (which
+          // marks them EXTRA_IS_SENSITIVE). The flag lives on the clip description extras.
+          val isSensitive =
+            clip.description.extras?.getBoolean(ClipDescription.EXTRA_IS_SENSITIVE) == true
+          if (isSensitive) {
+            log.debug { "Skipping clipboard sync (marked sensitive)" }
+            return@catch
+          }
           val clipDesc = clip.description
           val itemIdx =
             0.rangeUntil(clipDesc.mimeTypeCount).find { idx ->
@@ -1281,7 +1400,7 @@ class GlobalInputService : AccessibilityService() {
 
     globalInputPending = true
     log.debug { "scrollBy dx=$dx dy=$dy duration=$duration endpoints=$endpoints" }
-    dispatchGesture(builder.build(), gestureResultCallback, globalInputHandler)
+    safeDispatch(builder.build(), gestureResultCallback, globalInputHandler)
   }
 
   /**
@@ -1338,6 +1457,7 @@ class GlobalInputService : AccessibilityService() {
   companion object {
     private const val CHANNEL_ID = "deskflow_service_channel"
     private const val NOTIF_IME_NOT_SETUP_ID = 1
+    private const val NOTIF_MEDIA_ACCESS_ID = 2
 
     /** How long (ms) the wake lock is held to turn the screen on for input. */
     private const val WAKE_ON_INPUT_MS = 3_000L

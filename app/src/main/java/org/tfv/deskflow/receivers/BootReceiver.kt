@@ -29,7 +29,6 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
 import org.tfv.deskflow.services.ConnectionService
-import org.tfv.deskflow.services.GlobalInputService
 
 
 class BootReceiver : BroadcastReceiver() {
@@ -45,7 +44,10 @@ class BootReceiver : BroadcastReceiver() {
                 ctx,
                 Intent(ctx, ConnectionService::class.java),
             )
-            ctx.startService(Intent(ctx, GlobalInputService::class.java))
+            // GlobalInputService is an AccessibilityService: its lifecycle is owned by
+            // the system (Settings -> Accessibility), so it must NOT be app-started —
+            // startService would throw BackgroundServiceStartNotAllowedException on
+            // Android 14+ and crash the receiver. It starts when the user enables it.
         }
     }
 }

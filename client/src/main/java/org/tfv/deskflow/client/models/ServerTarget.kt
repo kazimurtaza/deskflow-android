@@ -32,7 +32,7 @@ data class ServerTarget(
     val screenName: String = SERVER_DEFAULT_SCREEN_NAME,
     val address: String= SERVER_DEFAULT_ADDRESS,
     val port: Int = SERVER_DEFAULT_PORT,
-    val useTls: Boolean = false,
+    val useTls: Boolean = true,
     val width: Int = 0,
     val height: Int = 0
 ) {

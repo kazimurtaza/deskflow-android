@@ -54,7 +54,9 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import org.tfv.deskflow.R
 import org.tfv.deskflow.client.util.logging.KLoggingManager
+import org.tfv.deskflow.client.net.tls.DeskflowFingerprint
 import org.tfv.deskflow.data.DeskflowClientCertificateProvider
+import org.tfv.deskflow.data.TrustedServersFileStore
 import org.tfv.deskflow.data.appPrefsStore
 import org.tfv.deskflow.data.aidl.ScreenState
 import org.tfv.deskflow.data.models.copy
@@ -275,6 +277,29 @@ fun SettingsScreen(
                   stringResource(
                     R.string.settings_screen_client_cert_fingerprint,
                     clientCertFingerprint,
+                  ),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth(),
+              )
+            }
+            // The pinned SERVER certificate fingerprint (TLS trust-on-first-use) for
+            // the currently-configured server address, so the user can verify the
+            // pinned value against the server's displayed fingerprint and detect a
+            // first-connect MITM. Read-only.
+            val serverHost = screenValue.server.address
+            val pinnedServerFingerprint = remember(serverHost) {
+              runCatching {
+                TrustedServersFileStore(ctx).pinnedFingerprint(serverHost)
+              }.getOrNull()
+            }
+            if (pinnedServerFingerprint != null) {
+              Text(
+                text =
+                  stringResource(
+                    R.string.settings_screen_server_fingerprint,
+                    serverHost,
+                    DeskflowFingerprint.colonHexUpper(pinnedServerFingerprint),
                   ),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

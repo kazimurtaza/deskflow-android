@@ -51,7 +51,7 @@ object AppPrefsSerializer : Serializer<AppPrefs> {
             server = serverConfig {
                 address = SERVER_DEFAULT_ADDRESS
                 port = SERVER_DEFAULT_PORT
-                useTls = false
+                useTls = true
             }
         }
 

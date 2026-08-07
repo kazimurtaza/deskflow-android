@@ -80,7 +80,8 @@ android {
       buildConfigField("boolean", "DEBUG", "true")
     }
     release {
-      isMinifyEnabled = false
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(
         getDefaultProguardFile("proguard-android-optimize.txt"),
         "proguard-rules.pro",
@@ -167,7 +168,8 @@ dependencies {
   implementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
   implementation(libs.androidx.constraintlayout)
 
-  testImplementation(libs.junit)
+  testImplementation(libs.kotlin.test)
+  testImplementation(libs.junit.jupiter)
   androidTestImplementation(libs.androidx.test.core)
   androidTestImplementation(libs.androidx.test.rules)
   androidTestImplementation(libs.androidx.test.ext)
@@ -179,6 +181,12 @@ dependencies {
   androidTestImplementation(libs.androidx.ui.test.junit4)
   debugImplementation(libs.androidx.ui.tooling)
   debugImplementation(libs.androidx.ui.test.manifest)
+}
+
+// JVM unit tests (app/src/test) run on JUnit 5. Instrumented tests (androidTest)
+// use a different AGP task type and are unaffected.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+  useJUnitPlatform()
 }
 
 tasks.register("installDebugEnableAccessibilityService") {

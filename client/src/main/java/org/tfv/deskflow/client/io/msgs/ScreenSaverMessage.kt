@@ -37,7 +37,7 @@ class ScreenSaverMessage(var screenSaverOnFlag: Byte = 0) : Message(MESSAGE_TYPE
     }
 
     override fun toString(): String {
-        return "ScreenSaverMessage: TODO"
+        return "ScreenSaverMessage(screenSaverOnFlag=$screenSaverOnFlag)"
     }
 
     companion object {

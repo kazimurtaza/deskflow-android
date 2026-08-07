@@ -26,11 +26,19 @@ package org.tfv.deskflow.client.io
 import java.io.DataInputStream
 import java.io.IOException
 
+/** Max bytes accepted in a length-prefixed protocol string (screen names, etc.). */
+private const val MAX_STRING_BYTES = 16 * 1024
+
 @Throws(IOException::class)
 fun DataInputStream.readString(): String {
     // Faithful inverse of DataOutputStreamExt.writeString():
     // 4-byte big-endian length prefix followed by exactly that many UTF-8 bytes.
     val length = readInt()
+    // The server controls this value; cap it so a bogus length can't drive a
+    // multi-GB allocation (OutOfMemoryError) before readFully ever checks EOF.
+    require(length in 0..MAX_STRING_BYTES) {
+        "Protocol string length $length exceeds cap $MAX_STRING_BYTES"
+    }
     val stringBytes = ByteArray(length)
     readFully(stringBytes)
     return String(stringBytes, Charsets.UTF_8)

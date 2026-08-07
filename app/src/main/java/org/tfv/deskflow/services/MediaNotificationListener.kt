@@ -21,12 +21,16 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+package org.tfv.deskflow.services
 
-package org.tfv.deskflow.ui.components
+import android.service.notification.NotificationListenerService
 
-import androidx.compose.runtime.staticCompositionLocalOf
-import org.tfv.deskflow.services.ConnectionServiceClient
-
-//val LocalConnectionServiceClient = staticCompositionLocalOf<ConnectionServiceClient> {
-//    error("No ConnectionServiceClient provided")
-//}
+/**
+ * Empty [NotificationListenerService] that exists only so the user can grant Deskflow
+ * "Notification access". Being an enabled listener is what authorizes
+ * `MediaSessionManager.getActiveSessions(ComponentName)` for our app (accessibility
+ * services are not exempt). We do not inspect or act on notifications here.
+ *
+ * @see MediaSessionController
+ */
+class MediaNotificationListener : NotificationListenerService()

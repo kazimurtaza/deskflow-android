@@ -434,9 +434,12 @@ class FullDuplexSocket(
           }
         }
       }
-    } catch (err: Exception) {
+    } catch (err: Throwable) {
       log.warn(err) { "Error in socket thread" }
-      emit(SocketEvent.ErrorEvent(err, this))
+      // ErrorEvent is typed as Exception; only emit for Exception subclasses so a
+      // fatal Error (e.g. OOM) doesn't mis-type the event — but ALWAYS run cleanup
+      // so the socket/channel/selector are torn down rather than leaked.
+      if (err is Exception) emit(SocketEvent.ErrorEvent(err, this))
       try {
         dispose()
       } catch (_: Exception) {}
