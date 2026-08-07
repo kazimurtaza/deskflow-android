@@ -13,6 +13,20 @@ released under the MIT License). **Many thanks to Jonathan** for the foundation 
 builds on — the Deskflow/Barrier wire-protocol client, the AccessibilityService + custom IME
 integration, configurable pointer input, and the SHA-256 fingerprint TLS/TOFU model.
 
+Several improvements also build on pull requests contributed to the (then-unmerged) upstream
+repository — many thanks to those authors:
+- [@qvr — PR #12](https://github.com/jglanz/deskflow-android/pull/12): IME overhaul,
+  click-and-drag touch synthesis, and Ctrl+wheel zoom.
+- [@RyanEwen — PR #22](https://github.com/jglanz/deskflow-android/pull/22): latency pack
+  (TCP_NODELAY), forward mouse button → Recents, wake-on-input, and cursor hide/show on
+  screen enter/leave.
+- [@chid — PR #21](https://github.com/jglanz/deskflow-android/pull/21): landscape
+  connection-screen layout.
+- [@Poussinou — PR #6](https://github.com/jglanz/deskflow-android/pull/6): README install
+  badges.
+Their work was adapted to this fork's architecture (minSdk stays 34; our drag/pointer model
+and TLS stack are preserved); see the integration commits in the git history.
+
 The upstream repository became **inactive**, so this is now an **actively maintained fork**
 that continues development and has moved well past upstream:
 [github.com/kazimurtaza/deskflow-android](https://github.com/kazimurtaza/deskflow-android).
@@ -50,7 +64,8 @@ greatly expanded test suite. See the commit history for the full set.
 - Mouse input
   - Pointer movement, left / right / middle click
   - **Wheel scrolling** (vertical, plus horizontal tilt)
-  - **Back button** triggers system Back
+  - **Click-and-drag** (multi-finger for right / middle) and **Ctrl + wheel = pinch/spread zoom**
+  - **Back button** triggers system Back; **Forward button** (X2) opens Recents
 - Keyboard
   - Shortcuts & hotkeys: app switching (`Command+Tab` / `Alt+Tab`), arrow-key navigation, `Escape` for Back
   - **Volume keys** (up / down / mute) control the device volume
@@ -58,11 +73,12 @@ greatly expanded test suite. See the commit history for the full set.
 - **Configurable pointer speed** slider (in Settings)
 - Clipboard integration
   - Text (of any kind) is supported
+  - Clips marked **sensitive** (e.g. password-manager / autofill copies) are **not** relayed to the server
   - __Bitmap is **NOT** supported currently, but is next on the list__
 - Simple gesture support
   - Pull down on the status bar
   - Pull up for all apps, etc
-- **Mouse-wheel scrolling works. Gesture or click-and-drag scrolling is limited, though arrow keys work in many apps.**
+- **Mouse-wheel scrolling and click-and-drag both work; arrow keys also navigate in many apps.**
 - **TLS is on by default**, with SHA-256 fingerprint trust-on-first-use and client certificates (PeerAuth / mutual TLS) supported. See [TLS/SSL Security](#tlsssl-security).
 
 ## Installation
@@ -102,7 +118,9 @@ is the TLS configuration, described below.
 TLS is supported. The client authenticates the server with **SHA-256 fingerprint
 trust-on-first-use (TOFU)**: on the first successful connection the server
 certificate's fingerprint is pinned, and any later mismatch is rejected (which
-would indicate a man-in-the-middle or a changed server certificate).
+would indicate a man-in-the-middle or a changed server certificate). The pinned
+server fingerprint is shown on the Settings screen so you can verify it against
+the server.
 
 For servers configured with **PeerAuth** (mutual TLS), the client also presents
 its own self-signed certificate. The app generates this certificate
