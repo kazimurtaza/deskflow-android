@@ -189,6 +189,7 @@ class ClipboardReceiveManager {
 
   fun reset() {
     messages.clear()
+    phase = ClipboardDataMarker.Unknown
   }
 
   companion object {
