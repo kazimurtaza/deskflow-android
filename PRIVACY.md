@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Effective Date**: 6/1/2025
+**Effective Date**: 2026-08-07
 
 **Deskflow Android** ("we", "our", or "us") is committed to protecting your privacy. This application is open source and respects your privacy by design.
 
@@ -12,7 +12,7 @@ We do **not collect**, store, or share any personal data, usage data, or device 
 
 This application is open source, and its complete source code is publicly available at:
 
-[https://github.com/jglanz/deskflow-android](https://github.com/jglanz/deskflow-android)
+[https://github.com/kazimurtaza/deskflow-android](https://github.com/kazimurtaza/deskflow-android)
 
 You are free to inspect, audit, and modify the source code to verify our privacy claims.
 
@@ -26,8 +26,8 @@ Although we do not collect data, we may update this policy to reflect changes in
 
 ## 5. Contact
 
-If you have any questions about this Privacy Policy, you can reach out to us at:
+If you have any questions about this Privacy Policy, please open an issue at:
 
-support@3form.ventures
+https://github.com/kazimurtaza/deskflow-android/issues
 
 Thank you for using Deskflow Android!
