@@ -41,7 +41,6 @@ jobs:
   release-bundle:
     needs: verify
     runs-on: ubuntu-latest
-    environment: DeskflowAndroid
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -58,7 +57,7 @@ jobs:
 
       - name: Checkout tag
         run: |
-          git fetch --tags
+          git fetch --tags --force
           git checkout tags/${{ env.tag_name }}
 
       - name: Set up JDK
@@ -93,7 +92,6 @@ jobs:
   release-apk:
     needs: verify
     runs-on: ubuntu-latest
-    environment: DeskflowAndroid
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -110,7 +108,7 @@ jobs:
 
       - name: Checkout tag
         run: |
-          git fetch --tags
+          git fetch --tags --force
           git checkout tags/${{ env.tag_name }}
           
           echo "Available build tools:"
