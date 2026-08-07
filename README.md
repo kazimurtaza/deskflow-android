@@ -66,6 +66,7 @@ greatly expanded test suite. See the commit history for the full set.
   - **Wheel scrolling** (vertical, plus horizontal tilt)
   - **Click-and-drag** (multi-finger for right / middle) and **Ctrl + wheel = pinch/spread zoom**
   - **Back button** triggers system Back; **Forward button** (X2) opens Recents
+  - **Wakes the screen** on mouse activity so the tablet responds even while asleep
 - Keyboard
   - Shortcuts & hotkeys: app switching (`Command+Tab` / `Alt+Tab`), arrow-key navigation, `Escape` for Back
   - **Volume keys** (up / down / mute) control the device volume
@@ -80,6 +81,7 @@ greatly expanded test suite. See the commit history for the full set.
   - Pull up for all apps, etc
 - **Mouse-wheel scrolling and click-and-drag both work; arrow keys also navigate in many apps.**
 - **TLS is on by default**, with SHA-256 fingerprint trust-on-first-use and client certificates (PeerAuth / mutual TLS) supported. See [TLS/SSL Security](#tlsssl-security).
+- **Low-latency input** — TCP_NODELAY is set on the link to the Deskflow server, so mouse/keyboard events aren't delayed by Nagle's algorithm.
 
 ## Installation
 
