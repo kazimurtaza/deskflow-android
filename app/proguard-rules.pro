@@ -32,3 +32,12 @@
 # Without this, R8 strips/renames that constructor and every Service fails at <clinit>
 # with NoSuchMethodException -- the app won't start.
 -keep class org.tfv.deskflow.logging.** { *; }
+
+# --- Input events (Serializable across the in-process AIDL Bundle) ----------
+# KeyboardEvent / MouseEvent / ScreenEvent / ClipboardData are passed between the
+# ConnectionService and the input services via Bundle.putSerializable. R8 must not
+# strip/rename their fields or deserialization yields broken objects and input
+# (mouse/keyboard/clipboard) never arrives -- the connection still shows "connected"
+# (status flows separately) but nothing moves.
+-keep class org.tfv.deskflow.client.events.** { *; }
+-keep class org.tfv.deskflow.client.models.** { *; }
